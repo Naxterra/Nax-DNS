@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RootNamespace>BetterDns.Service</RootNamespace>
+    <AssemblyName>BetterDns.Service</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../BetterDns.Core/BetterDns.Core.csproj" />
+    <PackageReference Include="Divert.Windows" Version="3.0.0" />
+    <PackageReference Include="Native.WinDivert" Version="2.2.2" ExcludeAssets="runtime" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.8" />
+    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+  </ItemGroup>
+  <Target Name="ExcludeWinDivertDriverFromUnelevatedBuild"
+          BeforeTargets="_CopyFilesMarkedCopyLocal;ComputeFilesToPublish">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+                               Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Native.WinDivert'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="ExcludeWinDivertDriverFromUnelevatedPublish"
+          AfterTargets="ComputeFilesToPublish"
+          BeforeTargets="CopyFilesToPublishDirectory">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.NuGetPackageId)' == 'Native.WinDivert'" />
+    </ItemGroup>
+  </Target>
+</Project>

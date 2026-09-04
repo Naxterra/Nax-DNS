@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BetterDns.Core/BetterDns.Core.csproj" />
+    <Project Path="src/BetterDns.Service/BetterDns.Service.csproj" />
+    <Project Path="src/BetterDns.Gui/BetterDns.Gui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BetterDns.Core.Tests/BetterDns.Core.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/BetterDns.Probe/BetterDns.Probe.csproj" />
+  </Folder>
+</Solution>
