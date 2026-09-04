@@ -61,7 +61,9 @@ de.UninstallServiceFailed=Der BetterDNS-Dienst konnte nicht entfernt werden. Die
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\artifacts\BetterDNS\Service\*"; DestDir: "{app}\Service"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\artifacts\BetterDNS\Service\*"; DestDir: "{app}\Service"; Excludes: "*.pdb,WinDivert-2.2.2\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Immutable vendor files live in a versioned directory. Do not overwrite an identical loaded driver on repair.
+Source: "..\artifacts\BetterDNS\Service\WinDivert-2.2.2\*"; DestDir: "{app}\Service\WinDivert-2.2.2"; Flags: onlyifdoesntexist recursesubdirs createallsubdirs uninsrestartdelete
 Source: "..\artifacts\BetterDNS\App\*"; DestDir: "{app}\App"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "install-service.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "uninstall-service.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
@@ -77,7 +79,6 @@ Name: "{autodesktop}\BetterDNS"; Filename: "{app}\App\{#MyAppExeName}"; WorkingD
 Filename: "{app}\App\{#MyAppExeName}"; Description: "{cm:LaunchProgram}"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\Service\WinDivert-2.2.2"
 Type: filesandordirs; Name: "{app}\Service\.windivert-package"
 
 [Code]
