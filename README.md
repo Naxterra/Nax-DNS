@@ -1,6 +1,6 @@
 # BetterDNS
 
-BetterDNS is a Windows 11 DNS policy manager with a native GUI, encrypted upstream transports, ordered failover, domain rules, and a DNS leak guard designed to survive ordinary VPN DNS changes.
+BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, encrypted upstream transports, ordered failover and domain rules. VPN coexistence and full leak prevention are not yet validated. See the [runtime review](docs/REVIEW-0.2.4.md) before using it as your DNS enforcement layer.
 
 ## What is implemented
 
@@ -36,7 +36,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.2.3-win-x64.exe` from the latest successful GitHub Actions artifact and run it. The modern dark installer automatically selects German on German Windows installations, also offers English, supports upgrades and repair, registers the service, installs the signed kernel driver, and provides a complete uninstaller.
+Download `BetterDNS-Setup-0.2.4-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI exercises installation, repair and uninstall, in addition to the core and service integration tests.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
@@ -78,13 +78,14 @@ The live probe tests the four default DoH3 resolvers plus HaGeZi over DoH, DoT, 
 
 DNS protocol parsing, TLS, QUIC, rules, and failover run in the isolated LocalSystem service. Moving those parsers into a custom kernel driver would increase crash and attack risk without improving DNS privacy.
 
-The DNS capture decision itself is in the Windows kernel network stack. A highest-priority WinDivert handle removes every non-loopback outbound UDP/53 packet from the network path. The service resolves its DNS payload over the chosen encrypted chain, builds a checksum-valid response with the original endpoints reversed, and injects that response into the inbound stack. The original plaintext packet is never reinjected while protection is active. This also avoids port 53 ownership conflicts and makes VPN adapter DNS rewrites irrelevant to the intercepted UDP path. Explicit TCP/53 is blocked fail-closed.
+WinDivert captures matching outbound UDP/53 packets at the network layer. The service resolves the payload over the selected encrypted chain and injects a reply. The filter excludes loopback and packets injected by other drivers. Highest WinDivert priority does not guarantee precedence over another product's WFP driver. TCP/53 is blocked rather than proxied.
 
-There are two deliberate limits:
+Current limits:
 
 1. An application that implements its own DoH on port 443 is indistinguishable from ordinary HTTPS without TLS interception. BetterDNS does not break HTTPS to inspect it.
 2. Native TCP DNS is blocked rather than proxied. Normal Windows DNS uses UDP; oversized encrypted answers are returned in the intercepted UDP response. Applications that insist on TCP/53 fail closed.
-3. No product can guarantee priority over another local administrator or a hostile/equal-priority kernel driver. BetterDNS opens WinDivert at its highest priority but does not make false tamper-proof claims.
+3. Loopback queries, other drivers' injected packets and app-owned encrypted DNS can bypass this implementation. VPN/Portmaster compatibility requires live testing.
+4. UDP interception ends if the service crashes or stops; there is currently no persistent UDP kill switch.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Security](SECURITY.md) for the trust and failure model.
 

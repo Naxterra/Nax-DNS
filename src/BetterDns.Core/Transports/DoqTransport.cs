@@ -62,6 +62,7 @@ public sealed class DoqTransport : IDnsTransport
                 var responseLength = BinaryPrimitives.ReadUInt16BigEndian(length);
                 var response = new byte[responseLength];
                 await stream.ReadExactlyAsync(response, cancellationToken).ConfigureAwait(false);
+                if (DnsWire.GetId(response) != 0) throw new InvalidDataException("DoQ response ID must be zero.");
                 return DnsWire.WithId(response, originalId);
             }
             catch (Exception error) when (error is QuicException or AuthenticationException or IOException)

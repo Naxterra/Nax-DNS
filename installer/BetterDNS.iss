@@ -1,5 +1,5 @@
 #define MyAppName "BetterDNS"
-#define MyAppVersion "0.2.3"
+#define MyAppVersion "0.2.4"
 #define MyAppPublisher "Naxterra"
 #define MyAppURL "https://github.com/Naxterra/Better-DNS-Manager"
 #define MyAppExeName "BetterDNS.exe"
@@ -31,7 +31,7 @@ WizardSizePercent=115
 ShowLanguageDialog=auto
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
-CloseApplications=force
+CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
 UninstallDisplayIcon={app}\App\{#MyAppExeName}
@@ -52,8 +52,8 @@ en.LaunchProgram=Launch BetterDNS
 de.LaunchProgram=BetterDNS starten
 en.StopServiceFailed=The existing BetterDNS service could not be stopped. Close the application and try again.
 de.StopServiceFailed=Der vorhandene BetterDNS-Dienst konnte nicht beendet werden. Schließen Sie die Anwendung und versuchen Sie es erneut.
-en.InstallServiceFailed=The BetterDNS service or signed kernel driver could not be installed. Setup will be rolled back. Details: %TEMP%\BetterDNS-installer.log
-de.InstallServiceFailed=Der BetterDNS-Dienst oder der signierte Kerneltreiber konnte nicht installiert werden. Die Installation wird zurückgesetzt. Details: %TEMP%\BetterDNS-installer.log
+en.InstallServiceFailed=BetterDNS did not pass its service and driver health check. Installed files may remain; protection is not confirmed. Details: %TEMP%\BetterDNS-installer.log
+de.InstallServiceFailed=BetterDNS hat die Dienst- und Treiberprüfung nicht bestanden. Installierte Dateien können verbleiben; der Schutz ist nicht bestätigt. Details: %TEMP%\BetterDNS-installer.log
 en.UninstallServiceFailed=The BetterDNS service could not be removed. Uninstall was stopped to avoid leaving active DNS policy behind.
 de.UninstallServiceFailed=Der BetterDNS-Dienst konnte nicht entfernt werden. Die Deinstallation wurde angehalten, damit keine aktive DNS-Richtlinie zurückbleibt.
 

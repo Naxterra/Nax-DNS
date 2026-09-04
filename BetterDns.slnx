@@ -6,6 +6,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/BetterDns.Core.Tests/BetterDns.Core.Tests.csproj" />
+    <Project Path="tests/BetterDns.Service.Tests/BetterDns.Service.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/BetterDns.Probe/BetterDns.Probe.csproj" />

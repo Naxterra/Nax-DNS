@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using BetterDns.Core.Configuration;
-using BetterDns.Gui.Ipc;
+using BetterDns.Core.Ipc;
 using BetterDns.Gui.Localization;
 
 namespace BetterDns.Gui.ViewModels;
@@ -12,6 +12,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool editorsLoaded;
     private bool isConnected;
     private bool isActive;
+    private bool protectionConfirmed;
+    private bool refreshing;
     private string connectionText;
     private string enforcementText;
     private string statusMessage;
@@ -73,7 +75,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsConnected { get => isConnected; private set { if (Set(ref isConnected, value)) { ToggleProtectionCommand.RaiseCanExecuteChanged(); SaveCommand.RaiseCanExecuteChanged(); } } }
     public bool IsActive { get => isActive; private set { if (Set(ref isActive, value)) { Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); } } }
     public string ConnectionText { get => connectionText; private set => Set(ref connectionText, value); }
-    public string ProtectionText => LocalizationManager.Get(IsActive ? "Protection.Active" : "Protection.Disabled");
+    public string ProtectionText => IsActive && !protectionConfirmed
+        ? LocalizationManager.Get("Status.DriverUnavailable")
+        : LocalizationManager.Get(IsActive ? "Protection.Active" : "Protection.Disabled");
     public string ToggleButtonText => LocalizationManager.Get(IsActive ? "Action.Disable" : "Action.Enable");
     public string EnforcementText { get => enforcementText; private set => Set(ref enforcementText, value); }
     public string StatusMessage { get => statusMessage; private set => Set(ref statusMessage, value); }
@@ -109,11 +113,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private async Task RefreshAsync()
     {
+        if (refreshing) return;
+        refreshing = true;
         try
         {
             var snapshot = await client.SendAsync<ServiceSnapshot>("getState", false).ConfigureAwait(true);
             IsConnected = true;
             IsActive = snapshot.Configuration.Active;
+            protectionConfirmed = snapshot.Enforcement.Active && snapshot.Enforcement.DriverReady && snapshot.Enforcement.LastError is null;
+            Raise(nameof(ProtectionText));
             serviceVersion = snapshot.Version;
             lastConnectionError = null;
             lastEnforcement = snapshot.Enforcement;
@@ -146,10 +154,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (Exception error)
         {
             IsConnected = false;
+            protectionConfirmed = false;
+            Raise(nameof(ProtectionText));
             lastConnectionError = error.Message;
             ConnectionText = LocalizationManager.Get("Connection.Unavailable");
             StatusMessage = LocalizationManager.Get("Status.ServiceUnavailable", error.Message);
         }
+        finally { refreshing = false; }
     }
 
     private async Task ToggleProtectionAsync()

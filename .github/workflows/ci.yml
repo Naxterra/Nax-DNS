@@ -26,7 +26,7 @@ jobs:
 
       - name: Unit tests
         shell: pwsh
-        run: dotnet test tests/BetterDns.Core.Tests/BetterDns.Core.Tests.csproj -c Release --no-build
+        run: dotnet test BetterDns.slnx -c Release --no-build
 
       - name: Install verified Inno Setup compiler
         shell: pwsh
@@ -41,6 +41,18 @@ jobs:
       - name: Create self-contained package
         shell: pwsh
         run: ./scripts/build.ps1 -BuildInstaller
+
+      - name: Test fresh install, repair, service health and uninstall
+        shell: pwsh
+        run: ./scripts/test-installer.ps1
+
+      - name: Upload installer test logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: installer-test-logs
+          path: artifacts/InstallerTest
+          if-no-files-found: ignore
 
       - name: Upload Setup executable
         uses: actions/upload-artifact@v6

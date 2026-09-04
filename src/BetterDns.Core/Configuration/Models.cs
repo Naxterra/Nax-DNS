@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text.Json.Serialization;
+using BetterDns.Core.Transports;
 
 namespace BetterDns.Core.Configuration;
 
@@ -35,6 +37,7 @@ public sealed record UpstreamDefinition
     public bool Enabled { get; init; } = true;
     public int TimeoutMilliseconds { get; init; } = 3500;
 
+    [JsonIgnore]
     public string HostName
     {
         get
@@ -46,13 +49,11 @@ public sealed record UpstreamDefinition
                     : string.Empty;
             }
 
-            var endpoint = Endpoint.StartsWith("[", StringComparison.Ordinal)
-                ? Endpoint.TrimStart('[').Split(']')[0]
-                : Endpoint.Split(':')[0];
-            return endpoint;
+            return EndpointParser.Parse(Endpoint, 853).Host;
         }
     }
 
+    [JsonIgnore]
     public IReadOnlyList<IPAddress> ParsedBootstrapAddresses => BootstrapAddresses
         .Select(value => IPAddress.TryParse(value, out var address) ? address : null)
         .Where(static address => address is not null)

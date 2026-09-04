@@ -6,9 +6,9 @@ internal static class EndpointParser
 {
     public static (string Host, int Port) Parse(string endpoint, int defaultPort)
     {
-        if (Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+        if (endpoint.Contains("://", StringComparison.Ordinal) && Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
         {
-            return (uri.DnsSafeHost, uri.IsDefaultPort ? defaultPort : uri.Port);
+            return (uri.DnsSafeHost.Trim('[', ']'), uri.Port < 0 ? defaultPort : uri.Port);
         }
 
         if (endpoint.StartsWith("[", StringComparison.Ordinal))

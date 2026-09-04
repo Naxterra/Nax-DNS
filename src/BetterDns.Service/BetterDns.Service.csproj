@@ -9,7 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../BetterDns.Core/BetterDns.Core.csproj" />
     <PackageReference Include="Divert.Windows" Version="3.0.0" />
-    <PackageReference Include="Native.WinDivert" Version="2.2.2" ExcludeAssets="runtime" GeneratePathProperty="true" />
+    <PackageReference Include="Native.WinDivert" Version="2.2.2" ExcludeAssets="runtime;native" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="11.0.0-preview.7.26381.103" />
   </ItemGroup>
   <Target Name="ExcludeWinDivertDriverFromUnelevatedBuild"

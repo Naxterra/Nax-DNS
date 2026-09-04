@@ -20,18 +20,19 @@ public static class DnsWire
     public static byte[] CreateQuery(string domain, ushort type = 1)
     {
         var normalized = domain.Trim().TrimEnd('.');
-        if (string.IsNullOrWhiteSpace(normalized))
+        if (string.IsNullOrWhiteSpace(normalized) && domain.Trim() != ".")
         {
             throw new ArgumentException("A DNS name is required.", nameof(domain));
         }
 
         using var stream = new MemoryStream();
         Span<byte> header = stackalloc byte[HeaderLength];
+        header.Clear();
         BinaryPrimitives.WriteUInt16BigEndian(header, checked((ushort)RandomNumberGenerator.GetInt32(ushort.MaxValue + 1)));
         BinaryPrimitives.WriteUInt16BigEndian(header[2..], 0x0100);
         BinaryPrimitives.WriteUInt16BigEndian(header[4..], 1);
         stream.Write(header);
-        foreach (var label in normalized.Split('.'))
+        foreach (var label in normalized.Length == 0 ? [] : normalized.Split('.'))
         {
             var bytes = Encoding.ASCII.GetBytes(label);
             if (bytes.Length is 0 or > 63)
@@ -63,9 +64,9 @@ public static class DnsWire
     {
         EnsureHeader(message);
         var questionCount = BinaryPrimitives.ReadUInt16BigEndian(message[4..]);
-        if (questionCount == 0)
+        if (questionCount != 1)
         {
-            throw new InvalidDataException("DNS message has no question.");
+            throw new InvalidDataException("Exactly one DNS question is required.");
         }
 
         var offset = HeaderLength;
@@ -88,7 +89,7 @@ public static class DnsWire
         }
 
         var responseCode = response[3] & 0x0F;
-        return responseCode is not (2 or 5);
+        return responseCode is 0 or 3;
     }
 
     public static string ResponseCodeName(ReadOnlySpan<byte> response)
@@ -112,11 +113,18 @@ public static class DnsWire
 
     public static byte[] CreateErrorResponse(ReadOnlySpan<byte> query, byte responseCode)
     {
-        var question = ReadFirstQuestion(query);
-        var response = query[..question.QuestionEndOffset].ToArray();
-        response[2] = (byte)((response[2] & 0x79) | 0x80);
-        response[3] = (byte)((response[3] & 0xF0) | 0x80 | (responseCode & 0x0F));
-        response.AsSpan(6, 6).Clear();
+        var response = new byte[HeaderLength];
+        if (query.Length >= 2) query[..2].CopyTo(response);
+        try
+        {
+            var question = ReadFirstQuestion(query);
+            // Re-encode names so compressed question pointers never refer to discarded bytes.
+            response = WithId(CreateQuery(question.Name.Length == 0 ? "." : question.Name, question.Type), GetId(query));
+            BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(response.Length - 2), question.Class);
+        }
+        catch (InvalidDataException) { }
+        response[2] = (byte)(0x80 | (query.Length > 2 ? query[2] & 0x79 : 0));
+        response[3] = (byte)(0x80 | (query.Length > 3 ? query[3] & 0x10 : 0) | (responseCode & 0x0F));
         return response;
     }
 
@@ -138,7 +146,7 @@ public static class DnsWire
         }
 
         using var stream = new MemoryStream();
-        stream.Write(query[..question.QuestionEndOffset]);
+        stream.Write(CreateErrorResponse(query, 0));
         var header = stream.GetBuffer();
         header[2] = (byte)((header[2] & 0x79) | 0x80);
         header[3] = (byte)((header[3] & 0xF0) | 0x80);
@@ -150,16 +158,28 @@ public static class DnsWire
         {
             fixedRecord.AsSpan().Clear();
             BinaryPrimitives.WriteUInt16BigEndian(fixedRecord, 0xC00C);
-            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord[2..], question.Type);
-            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord[4..], 1);
-            BinaryPrimitives.WriteUInt32BigEndian(fixedRecord[6..], 300);
+            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord.AsSpan(2), question.Type);
+            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord.AsSpan(4), 1);
+            BinaryPrimitives.WriteUInt32BigEndian(fixedRecord.AsSpan(6), 300);
             var bytes = address.GetAddressBytes();
-            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord[10..], checked((ushort)bytes.Length));
+            BinaryPrimitives.WriteUInt16BigEndian(fixedRecord.AsSpan(10), checked((ushort)bytes.Length));
             stream.Write(fixedRecord);
             stream.Write(bytes);
         }
 
         return stream.ToArray();
+    }
+
+    public static bool MatchesQuestion(ReadOnlySpan<byte> query, ReadOnlySpan<byte> response)
+    {
+        try
+        {
+            if (!IsUsableResponse(response) || GetId(query) != GetId(response) || (query[2] & 0x78) != (response[2] & 0x78)) return false;
+            var expected = ReadFirstQuestion(query);
+            var actual = ReadFirstQuestion(response);
+            return expected.Name.Equals(actual.Name, StringComparison.OrdinalIgnoreCase) && expected.Type == actual.Type && expected.Class == actual.Class;
+        }
+        catch (InvalidDataException) { return false; }
     }
 
     private static string ReadName(ReadOnlySpan<byte> message, ref int offset)

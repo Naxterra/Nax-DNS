@@ -44,16 +44,11 @@ if (-not (Test-Path -LiteralPath $driverDll) -or -not (Test-Path -LiteralPath $d
 Write-InstallLog 'The pre-extracted WinDivert files are present in their final directory.'
 
 if ($existing) {
-    $quotedBinary = '"' + $serviceExe + '"'
-    $arguments = @(
-        'config', 'BetterDNS',
-        'binPath=', $quotedBinary,
-        'start=', 'auto',
-        'obj=', 'LocalSystem',
-        'DisplayName=', 'BetterDNS Resolver'
-    )
-    & sc.exe @arguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not update the BetterDNS service registration.' }
+    $registration = Get-CimInstance Win32_Service -Filter "Name='BetterDNS'"
+    $changed = Invoke-CimMethod -InputObject $registration -MethodName Change -Arguments @{
+        PathName = '"' + $serviceExe + '"'; StartMode = 'Automatic'; StartName = 'LocalSystem'; DisplayName = 'BetterDNS Resolver'
+    }
+    if ($changed.ReturnValue -ne 0) { throw "Could not update the service: $($changed.ReturnValue)." }
 }
 else {
     New-Service -Name 'BetterDNS' -BinaryPathName ('"' + $serviceExe + '"') -DisplayName 'BetterDNS Resolver' -Description 'Encrypted DNS routing, failover, rules, and kernel DNS interception.' -StartupType Automatic | Out-Null
@@ -69,4 +64,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not enable service recovery.' }
 
 Start-Service -Name 'BetterDNS'
 (Get-Service -Name 'BetterDNS').WaitForStatus('Running', [TimeSpan]::FromSeconds(20))
-Write-InstallLog 'BetterDNS service is running.'
+$healthOutput = & $serviceExe --check-health 2>&1
+$healthExit = $LASTEXITCODE
+Write-InstallLog ($healthOutput | Out-String)
+if ($healthExit -ne 0) {
+    Stop-Service -Name 'BetterDNS' -ErrorAction SilentlyContinue
+    throw 'Service startup verification failed. See the health-check error above.'
+}
+Write-InstallLog 'BetterDNS stayed responsive; configuration, GUI connection and kernel driver are ready.'

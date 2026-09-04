@@ -12,7 +12,7 @@ $artifactRoot = Join-Path $repositoryRoot 'artifacts\BetterDNS'
 
 Push-Location $repositoryRoot
 try {
-    dotnet test 'tests\BetterDns.Core.Tests\BetterDns.Core.Tests.csproj' -c Release
+    dotnet test 'BetterDns.slnx' -c Release
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
 
     if (Test-Path -LiteralPath $artifactRoot) {

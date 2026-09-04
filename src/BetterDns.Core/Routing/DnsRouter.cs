@@ -12,6 +12,8 @@ public sealed class DnsRouter : IDisposable
     private readonly QueryLog queryLog;
     private readonly IReadOnlyDictionary<DnsProtocol, IDnsTransport> transports;
 
+    public IReadOnlyCollection<DnsProtocol> SupportedProtocols => transports.Keys.ToArray();
+
     public DnsRouter(UpstreamHealthTracker health, QueryLog queryLog)
         : this(
             health,
@@ -91,7 +93,7 @@ public sealed class DnsRouter : IDisposable
                 var response = await transports[upstream.Protocol]
                     .QueryAsync(upstream, query, timeout.Token)
                     .ConfigureAwait(false);
-                if (!DnsWire.IsUsableResponse(response))
+                if (!DnsWire.MatchesQuestion(query.Span, response))
                 {
                     throw new InvalidDataException($"Resolver returned {DnsWire.ResponseCodeName(response)}.");
                 }
