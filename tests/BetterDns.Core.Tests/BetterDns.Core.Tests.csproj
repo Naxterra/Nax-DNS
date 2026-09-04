@@ -12,4 +12,12 @@
     </PackageReference>
     <ProjectReference Include="../../src/BetterDns.Core/BetterDns.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/BetterDns.Gui/Resources/Strings.en.xaml"
+          Link="Localization/Strings.en.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/BetterDns.Gui/Resources/Strings.de.xaml"
+          Link="Localization/Strings.de.xaml"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

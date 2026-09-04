@@ -1,0 +1,77 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <sys:String x:Key="App.Title">BetterDNS — Verschlüsselter DNS-Manager</sys:String>
+    <sys:String x:Key="App.Subtitle">Privates DNS-Routing • intelligenter Ausfallschutz • Kernel-Abfangschicht</sys:String>
+    <sys:String x:Key="App.Language">Sprache</sys:String>
+    <sys:String x:Key="Connection.Unavailable">Dienst nicht erreichbar</sys:String>
+    <sys:String x:Key="Connection.Version">Dienst {0}</sys:String>
+
+    <sys:String x:Key="Tab.Dashboard">Übersicht</sys:String>
+    <sys:String x:Key="Tab.Servers">DNS-Server</sys:String>
+    <sys:String x:Key="Tab.Failover">Ausfallschutz</sys:String>
+    <sys:String x:Key="Tab.Rules">Regeln</sys:String>
+    <sys:String x:Key="Tab.Protection">Schutz</sys:String>
+
+    <sys:String x:Key="Dashboard.ProtectionTitle">DNS-Schutz</sys:String>
+    <sys:String x:Key="Dashboard.ResolverHealth">Resolver-Status</sys:String>
+    <sys:String x:Key="Dashboard.RecentQueries">Letzte Anfragen</sys:String>
+    <sys:String x:Key="Protection.Active">Windows-DNS-Anfragen werden durch BetterDNS geschützt.</sys:String>
+    <sys:String x:Key="Protection.Disabled">Der Schutz ist derzeit deaktiviert.</sys:String>
+    <sys:String x:Key="Action.Enable">Schutz aktivieren</sys:String>
+    <sys:String x:Key="Action.Disable">Schutz deaktivieren</sys:String>
+    <sys:String x:Key="Action.Refresh">Aktualisieren</sys:String>
+    <sys:String x:Key="Action.Save">Konfiguration speichern</sys:String>
+    <sys:String x:Key="Action.AddServer">Server hinzufügen</sys:String>
+    <sys:String x:Key="Action.AddChain">Kette hinzufügen</sys:String>
+    <sys:String x:Key="Action.AddRule">Regel hinzufügen</sys:String>
+    <sys:String x:Key="Action.RemoveSelected">Auswahl entfernen</sys:String>
+
+    <sys:String x:Key="Column.On">An</sys:String>
+    <sys:String x:Key="Column.Name">Name</sys:String>
+    <sys:String x:Key="Column.Resolver">Resolver</sys:String>
+    <sys:String x:Key="Column.Ready">Bereit</sys:String>
+    <sys:String x:Key="Column.Latency">Latenz</sys:String>
+    <sys:String x:Key="Column.LastError">Letzter Fehler</sys:String>
+    <sys:String x:Key="Column.Time">Zeit</sys:String>
+    <sys:String x:Key="Column.Domain">Domain</sys:String>
+    <sys:String x:Key="Column.Result">Ergebnis</sys:String>
+    <sys:String x:Key="Column.Protocol">Protokoll</sys:String>
+    <sys:String x:Key="Column.Endpoint">Endpunkt</sys:String>
+    <sys:String x:Key="Column.Bootstrap">Bootstrap-IPs</sys:String>
+    <sys:String x:Key="Column.Timeout">Zeitlimit ms</sys:String>
+    <sys:String x:Key="Column.Id">ID</sys:String>
+    <sys:String x:Key="Column.ResolverOrder">Resolver-IDs nach Priorität</sys:String>
+    <sys:String x:Key="Column.Failures">Fehler</sys:String>
+    <sys:String x:Key="Column.Cooldown">Wartezeit s</sys:String>
+    <sys:String x:Key="Column.Pattern">Muster</sys:String>
+    <sys:String x:Key="Column.Match">Vergleich</sys:String>
+    <sys:String x:Key="Column.Action">Aktion</sys:String>
+    <sys:String x:Key="Column.Chain">ID der Ausfallkette</sys:String>
+
+    <sys:String x:Key="Servers.BootstrapHint">Bootstrap-IPs verhindern rekursive Abfragen beim Verbindungsaufbau zum verschlüsselten Endpunkt.</sys:String>
+    <sys:String x:Key="Failover.DefaultChain">ID der Standardkette</sys:String>
+    <sys:String x:Key="Failover.Hint">Resolver werden von links nach rechts versucht. Server-IDs mit Kommas trennen; ausgefallene Resolver erhalten eine vorübergehende Wartezeit.</sys:String>
+    <sys:String x:Key="Rules.Hint">Regeln werden von oben nach unten ausgewertet.</sys:String>
+
+    <sys:String x:Key="Protection.Title">Windows-Schutzschicht</sys:String>
+    <sys:String x:Key="Protection.Description">Der signierte WinDivert-Kerneltreiber fängt ausgehende UDP-DNS-Anfragen ab, bevor ein VPN oder ein anderer lokaler Resolver sie übernehmen kann. Explizites TCP auf Port 53 wird ausfallsicher blockiert; verschlüsselte Upstreams verwenden Port 443 oder 853.</sys:String>
+    <sys:String x:Key="Protection.EnableEnforcement">DNS-Schutzschicht aktivieren</sys:String>
+    <sys:String x:Key="Protection.BlockTcp">Explizite TCP-DNS-Leaks im Kernel-Netzwerkstack blockieren</sys:String>
+    <sys:String x:Key="Protection.Interval">Prüfintervall der Schutzschicht (Sekunden)</sys:String>
+    <sys:String x:Key="Protection.Limit">BetterDNS untersucht kein HTTPS: App-eigenes DoH auf Port 443 ist ohne Schwächung von TLS nicht von normalem Webverkehr unterscheidbar. Das Abfangen der DNS-Pakete erfolgt im Kernel; verschlüsselte Resolver- und Regellogik bleibt im isolierten LocalSystem-Dienst.</sys:String>
+
+    <sys:String x:Key="Status.Connecting">Verbindung wird hergestellt…</sys:String>
+    <sys:String x:Key="Status.Synchronized">Konfiguration mit dem Dienst synchronisiert.</sys:String>
+    <sys:String x:Key="Status.ServiceUnavailable">Der BetterDNS-Dienst ist nicht installiert oder läuft nicht: {0}</sys:String>
+    <sys:String x:Key="Status.Saved">Konfiguration gespeichert. Neue Anfragen verwenden sie sofort.</sys:String>
+    <sys:String x:Key="Status.SaveFailed">Speichern nicht möglich: {0}</sys:String>
+    <sys:String x:Key="Status.DriverStarting">Kernel-Abfangtreiber wird gestartet</sys:String>
+    <sys:String x:Key="Status.DriverUnavailable">Kernel-Abfangtreiber nicht verfügbar</sys:String>
+    <sys:String x:Key="Status.DriverReady">WinDivert {0} ist bereit; Schutz deaktiviert</sys:String>
+    <sys:String x:Key="Status.DriverActive">WinDivert {0}: Kernel-DNS-Schutz aktiv</sys:String>
+    <sys:String x:Key="Status.RawError">{0}: {1}</sys:String>
+    <sys:String x:Key="Editor.NewServer">Neuer Resolver</sys:String>
+    <sys:String x:Key="Editor.NewChain">Neue Ausfallkette</sys:String>
+    <sys:String x:Key="Editor.NewRule">Neue Regel</sys:String>
+</ResourceDictionary>

@@ -18,7 +18,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 11.0.100-preview.7.26381.103
 
       - name: Build
         shell: pwsh
@@ -28,13 +28,25 @@ jobs:
         shell: pwsh
         run: dotnet test tests/BetterDns.Core.Tests/BetterDns.Core.Tests.csproj -c Release --no-build
 
+      - name: Install verified Inno Setup compiler
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download is-7_1_0 --repo jrsoftware/issrc --pattern innosetup-7.1.0-x64.exe
+          gh release verify-asset innosetup-7.1.0-x64.exe --repo jrsoftware/issrc
+          $process = Start-Process .\innosetup-7.1.0-x64.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed with exit code $($process.ExitCode)." }
+
       - name: Create self-contained package
         shell: pwsh
-        run: ./scripts/build.ps1
+        run: ./scripts/build.ps1 -BuildInstaller
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v6
         with:
           name: BetterDNS-win-x64
-          path: artifacts/BetterDNS
+          path: |
+            artifacts/Installer/*.exe
+            artifacts/BetterDNS
           if-no-files-found: error

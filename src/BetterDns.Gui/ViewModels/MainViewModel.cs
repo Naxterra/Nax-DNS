@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using BetterDns.Core.Configuration;
 using BetterDns.Gui.Ipc;
+using BetterDns.Gui.Localization;
 
 namespace BetterDns.Gui.ViewModels;
 
@@ -11,9 +12,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool editorsLoaded;
     private bool isConnected;
     private bool isActive;
-    private string connectionText = "Service unavailable";
-    private string enforcementText = "Start the BetterDNS service to inspect enforcement.";
-    private string statusMessage = "Connecting…";
+    private string connectionText;
+    private string enforcementText;
+    private string statusMessage;
+    private string selectedLanguage;
+    private string? serviceVersion;
+    private string? lastConnectionError;
+    private EnforcementSnapshot? lastEnforcement;
     private string defaultChainId = string.Empty;
     private bool enforcementEnabled = true;
     private bool blockPlaintextDns = true;
@@ -24,14 +29,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel()
     {
+        selectedLanguage = LocalizationManager.CurrentLanguage;
+        connectionText = LocalizationManager.Get("Connection.Unavailable");
+        enforcementText = LocalizationManager.Get("Status.DriverStarting");
+        statusMessage = LocalizationManager.Get("Status.Connecting");
         ToggleProtectionCommand = new AsyncCommand(ToggleProtectionAsync, () => IsConnected);
         RefreshCommand = new AsyncCommand(RefreshAsync);
         SaveCommand = new AsyncCommand(SaveAsync, () => IsConnected);
-        AddUpstreamCommand = new RelayCommand(() => Upstreams.Add(new()));
+        AddUpstreamCommand = new RelayCommand(() => Upstreams.Add(new() { Name = LocalizationManager.Get("Editor.NewServer") }));
         RemoveUpstreamCommand = new RelayCommand(() => { if (SelectedUpstream is not null) Upstreams.Remove(SelectedUpstream); });
-        AddChainCommand = new RelayCommand(() => Chains.Add(new()));
+        AddChainCommand = new RelayCommand(() => Chains.Add(new() { Name = LocalizationManager.Get("Editor.NewChain") }));
         RemoveChainCommand = new RelayCommand(() => { if (SelectedChain is not null) Chains.Remove(SelectedChain); });
-        AddRuleCommand = new RelayCommand(() => Rules.Add(new()));
+        AddRuleCommand = new RelayCommand(() => Rules.Add(new() { Name = LocalizationManager.Get("Editor.NewRule") }));
         RemoveRuleCommand = new RelayCommand(() => { if (SelectedRule is not null) Rules.Remove(SelectedRule); });
         timer = new() { Interval = TimeSpan.FromSeconds(3) };
         timer.Tick += OnTimerTick;
@@ -40,6 +49,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<DnsProtocol> Protocols { get; } = Enum.GetValues<DnsProtocol>();
     public IReadOnlyList<DomainMatchKind> MatchKinds { get; } = Enum.GetValues<DomainMatchKind>();
     public IReadOnlyList<RuleAction> RuleActions { get; } = Enum.GetValues<RuleAction>();
+    public IReadOnlyList<LanguageOption> Languages { get; } =
+    [
+        new("de", "Deutsch"),
+        new("en", "English")
+    ];
     public ObservableCollection<UpstreamEditor> Upstreams { get; } = [];
     public ObservableCollection<ChainEditor> Chains { get; } = [];
     public ObservableCollection<RuleEditor> Rules { get; } = [];
@@ -59,8 +73,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsConnected { get => isConnected; private set { if (Set(ref isConnected, value)) { ToggleProtectionCommand.RaiseCanExecuteChanged(); SaveCommand.RaiseCanExecuteChanged(); } } }
     public bool IsActive { get => isActive; private set { if (Set(ref isActive, value)) { Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); } } }
     public string ConnectionText { get => connectionText; private set => Set(ref connectionText, value); }
-    public string ProtectionText => IsActive ? "All Windows DNS is routed through BetterDNS." : "Protection is currently disabled.";
-    public string ToggleButtonText => IsActive ? "Disable protection" : "Enable protection";
+    public string ProtectionText => LocalizationManager.Get(IsActive ? "Protection.Active" : "Protection.Disabled");
+    public string ToggleButtonText => LocalizationManager.Get(IsActive ? "Action.Disable" : "Action.Enable");
     public string EnforcementText { get => enforcementText; private set => Set(ref enforcementText, value); }
     public string StatusMessage { get => statusMessage; private set => Set(ref statusMessage, value); }
     public string DefaultChainId { get => defaultChainId; set => Set(ref defaultChainId, value); }
@@ -70,6 +84,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public UpstreamEditor? SelectedUpstream { get => selectedUpstream; set => Set(ref selectedUpstream, value); }
     public ChainEditor? SelectedChain { get => selectedChain; set => Set(ref selectedChain, value); }
     public RuleEditor? SelectedRule { get => selectedRule; set => Set(ref selectedRule, value); }
+    public string SelectedLanguage
+    {
+        get => selectedLanguage;
+        set
+        {
+            if (Set(ref selectedLanguage, value))
+            {
+                LocalizationManager.Apply(value);
+                RefreshLocalizedText();
+            }
+        }
+    }
 
     public async Task InitializeAsync()
     {
@@ -88,11 +114,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var snapshot = await client.SendAsync<ServiceSnapshot>("getState", false).ConfigureAwait(true);
             IsConnected = true;
             IsActive = snapshot.Configuration.Active;
-            ConnectionText = $"Service {snapshot.Version}";
-            EnforcementText = snapshot.Enforcement.LastError is null
-                ? snapshot.Enforcement.Status
-                : snapshot.Enforcement.Status + ": " + snapshot.Enforcement.LastError;
-            StatusMessage = "Configuration synchronized with the service.";
+            serviceVersion = snapshot.Version;
+            lastConnectionError = null;
+            lastEnforcement = snapshot.Enforcement;
+            ConnectionText = LocalizationManager.Get("Connection.Version", snapshot.Version);
+            EnforcementText = TranslateEnforcement(snapshot.Enforcement);
+            StatusMessage = LocalizationManager.Get("Status.Synchronized");
 
             UpstreamStatuses.Clear();
             foreach (var upstream in snapshot.Upstreams)
@@ -119,8 +146,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch (Exception error)
         {
             IsConnected = false;
-            ConnectionText = "Service unavailable";
-            StatusMessage = "BetterDNS service is not installed or not running: " + error.Message;
+            lastConnectionError = error.Message;
+            ConnectionText = LocalizationManager.Get("Connection.Unavailable");
+            StatusMessage = LocalizationManager.Get("Status.ServiceUnavailable", error.Message);
         }
     }
 
@@ -156,11 +184,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 }
             };
             await client.SendAsync<BetterDnsConfiguration>("saveConfiguration", configuration).ConfigureAwait(true);
-            StatusMessage = "Configuration saved. New queries use it immediately.";
+            StatusMessage = LocalizationManager.Get("Status.Saved");
         }
         catch (Exception error)
         {
-            StatusMessage = "Could not save: " + error.Message;
+            StatusMessage = LocalizationManager.Get("Status.SaveFailed", error.Message);
         }
     }
 
@@ -176,6 +204,58 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         EnforcementEnabled = configuration.Enforcement.Enabled;
         BlockPlaintextDns = configuration.Enforcement.BlockPlaintextDns;
         WatchdogSeconds = configuration.Enforcement.WatchdogSeconds;
+    }
+
+    private void RefreshLocalizedText()
+    {
+        ConnectionText = IsConnected && serviceVersion is not null
+            ? LocalizationManager.Get("Connection.Version", serviceVersion)
+            : LocalizationManager.Get("Connection.Unavailable");
+        EnforcementText = lastEnforcement is null
+            ? LocalizationManager.Get("Status.DriverStarting")
+            : TranslateEnforcement(lastEnforcement);
+        StatusMessage = IsConnected
+            ? LocalizationManager.Get("Status.Synchronized")
+            : lastConnectionError is null
+                ? LocalizationManager.Get("Status.Connecting")
+                : LocalizationManager.Get("Status.ServiceUnavailable", lastConnectionError);
+        Raise(nameof(ProtectionText));
+        Raise(nameof(ToggleButtonText));
+    }
+
+    private static string TranslateEnforcement(EnforcementSnapshot snapshot)
+    {
+        var version = ExtractWinDivertVersion(snapshot.Status);
+        var translated = snapshot.Status switch
+        {
+            var status when status.Contains("unavailable", StringComparison.OrdinalIgnoreCase) =>
+                LocalizationManager.Get("Status.DriverUnavailable"),
+            var status when status.Contains("starting", StringComparison.OrdinalIgnoreCase) =>
+                LocalizationManager.Get("Status.DriverStarting"),
+            var status when status.Contains("WinDivert", StringComparison.OrdinalIgnoreCase) && snapshot.Active =>
+                LocalizationManager.Get("Status.DriverActive", version),
+            var status when status.Contains("WinDivert", StringComparison.OrdinalIgnoreCase) =>
+                LocalizationManager.Get("Status.DriverReady", version),
+            _ => snapshot.Status
+        };
+
+        return snapshot.LastError is null
+            ? translated
+            : LocalizationManager.Get("Status.RawError", translated, snapshot.LastError);
+    }
+
+    private static string ExtractWinDivertVersion(string status)
+    {
+        const string marker = "WinDivert ";
+        var start = status.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            return "";
+        }
+
+        var remainder = status[(start + marker.Length)..];
+        var end = remainder.IndexOf(' ');
+        return end < 0 ? remainder : remainder[..end];
     }
 
     private sealed record ServiceSnapshot(

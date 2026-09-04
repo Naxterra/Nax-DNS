@@ -8,11 +8,13 @@ BetterDNS is a Windows 11 DNS policy manager with a native GUI, encrypted upstre
 - A signed WinDivert kernel driver that captures outbound UDP DNS before it reaches a VPN tunnel or a competing local port 53 listener.
 - Ordered failover with timeouts, failure thresholds, cooldown circuits, live health, and no fallback to unencrypted DNS.
 - Exact, suffix, single-label wildcard, and regular-expression domain rules. Rules can route to another failover chain or block a domain.
-- A WPF GUI for resolvers, failover chains, rules, enforcement, health, and recent queries.
+- A colorful dark-mode WPF GUI for resolvers, failover chains, rules, enforcement, health, and recent queries.
+- Complete English and German UI resources with automatic Windows-language detection and a live Deutsch/English selector.
 - A LocalSystem Windows service with an administrator-only named-pipe control channel.
 - No adapter DNS rewrite: current DHCP, static, VPN, Portmaster, and other resolver settings stay intact while intercepted replies are returned as if they came from the originally addressed DNS server.
 - Fail-closed TCP/53 blocking through Windows Filtering Platform-backed Windows Firewall policy. UDP/53 is diverted by the signed driver and never leaves the machine while active.
 - Bootstrap IP answers for configured resolver hostnames, preventing recursive interception when an encrypted transport resolves its own endpoint.
+- A single modern, dark, bilingual Setup executable with upgrade/repair support, service recovery, optional Desktop shortcut, language seeding, and safe uninstall lifecycle.
 
 ## Defaults
 
@@ -34,31 +36,35 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Build a self-contained package from an ordinary PowerShell prompt:
+Download `BetterDNS-Setup-0.2.0-win-x64.exe` from the latest successful GitHub Actions artifact and run it. The modern dark installer automatically selects German on German Windows installations, also offers English, supports upgrades and repair, registers the service, installs the signed kernel driver, and provides a complete uninstaller.
+
+To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
 ```powershell
-./scripts/build.ps1
+./scripts/build.ps1 -BuildInstaller
 ```
 
-Then open an elevated PowerShell prompt in `artifacts/BetterDNS` and run:
+The installer is written to `artifacts/Installer`. The underlying self-contained application bundle remains in `artifacts/BetterDNS` for development and manual diagnostics.
+
+The legacy script-based installation remains available for troubleshooting from an elevated PowerShell prompt in `artifacts/BetterDNS`:
 
 ```powershell
 ./install-service.ps1
 ```
 
-The installer copies the self-contained service and GUI to `%ProgramFiles%\BetterDNS`, extracts the signed WinDivert 2.2.2 driver, creates the automatic `BetterDNS` service, configures service recovery, adds Start Menu/Desktop shortcuts, and opens the GUI. Protection starts disabled so the configuration can be reviewed first.
+Setup copies the self-contained .NET 11 service and GUI to `%ProgramFiles%\BetterDNS`, extracts the signed WinDivert 2.2.2 driver, creates the automatic `BetterDNS` service, configures service recovery, adds Start Menu and optional Desktop shortcuts, and can open the GUI. Protection starts disabled so the configuration can be reviewed first.
 
-To uninstall and remove kernel/firewall enforcement cleanly:
+Use **Settings → Apps → Installed apps → BetterDNS → Uninstall** for the normal bilingual uninstaller. For the legacy package, run:
 
 ```powershell
 ./uninstall-service.ps1
 ```
 
-The configuration in `%ProgramData%\BetterDNS` is retained unless `-RemoveConfiguration` is supplied.
+The normal uninstaller retains `%ProgramData%\BetterDNS` so resolver profiles survive reinstallations. The legacy script can remove it when `-RemoveConfiguration` is supplied.
 
 ## Build and test
 
-Requirements for a source build are Windows 11 and the .NET 9 SDK. Published packages are self-contained.
+Requirements for a source build are Windows 11 and the .NET 11 Preview 7 SDK pinned in `global.json`. Published packages are self-contained and do not require a separately installed runtime.
 
 ```powershell
 dotnet build BetterDns.slnx -c Release

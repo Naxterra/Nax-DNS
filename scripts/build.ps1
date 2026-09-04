@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('win-x64')]
-    [string]$Runtime = 'win-x64'
+    [string]$Runtime = 'win-x64',
+
+    [switch]$BuildInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +39,23 @@ try {
     Copy-Item -LiteralPath 'README.md' -Destination $artifactRoot
     Copy-Item -LiteralPath 'THIRD_PARTY_NOTICES.md' -Destination $artifactRoot
     Write-Host "Package created at $artifactRoot" -ForegroundColor Green
+
+    if ($BuildInstaller) {
+        $compilerCandidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 7\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')
+        )
+        $compiler = $compilerCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+        if (-not $compiler) {
+            throw 'Inno Setup 7 (or 6.6+) is required to build the Setup executable.'
+        }
+
+        & $compiler 'installer\BetterDNS.iss'
+        if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+        Write-Host "Installer created in $(Join-Path $repositoryRoot 'artifacts\Installer')" -ForegroundColor Green
+    }
 }
 finally {
     Pop-Location
