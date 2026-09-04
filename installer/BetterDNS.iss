@@ -1,5 +1,5 @@
 #define MyAppName "BetterDNS"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.1"
 #define MyAppPublisher "Naxterra"
 #define MyAppURL "https://github.com/Naxterra/Better-DNS-Manager"
 #define MyAppExeName "BetterDNS.exe"
@@ -88,10 +88,13 @@ var
   Parameters: String;
 begin
   Parameters := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ' +
-    '"$s = Get-Service -Name ''BetterDNS'' -ErrorAction SilentlyContinue; ' +
-    'if ($null -ne $s -and $s.Status -ne ''Stopped'') { ' +
-    'Stop-Service -Name ''BetterDNS'' -Force; ' +
-    '$s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(20)) }"';
+    '"$ErrorActionPreference = ''Stop''; try { ' +
+    '$s = Get-Service -Name ''BetterDNS'' -ErrorAction SilentlyContinue; ' +
+    'if ($null -eq $s) { exit 0 }; ' +
+    'if ($s.Status -ne ''Stopped'') { ' +
+    'Stop-Service -Name ''BetterDNS'' -Force -ErrorAction Stop; ' +
+    '$s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(20)) }; ' +
+    'exit 0 } catch { Write-Error $_; exit 1 }"';
   Result := Exec(PowerShellPath(), Parameters, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and
     (ResultCode = 0);
 end;

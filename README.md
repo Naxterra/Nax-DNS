@@ -36,7 +36,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.2.0-win-x64.exe` from the latest successful GitHub Actions artifact and run it. The modern dark installer automatically selects German on German Windows installations, also offers English, supports upgrades and repair, registers the service, installs the signed kernel driver, and provides a complete uninstaller.
+Download `BetterDNS-Setup-0.2.1-win-x64.exe` from the latest successful GitHub Actions artifact and run it. The modern dark installer automatically selects German on German Windows installations, also offers English, supports upgrades and repair, registers the service, installs the signed kernel driver, and provides a complete uninstaller.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
