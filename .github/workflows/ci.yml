@@ -42,11 +42,16 @@ jobs:
         shell: pwsh
         run: ./scripts/build.ps1 -BuildInstaller
 
-      - name: Upload Windows package
+      - name: Upload Setup executable
         uses: actions/upload-artifact@v6
         with:
-          name: BetterDNS-win-x64
-          path: |
-            artifacts/Installer/*.exe
-            artifacts/BetterDNS
+          name: BetterDNS-Setup-win-x64
+          path: artifacts/Installer/*.exe
+          if-no-files-found: error
+
+      - name: Upload portable diagnostics bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: BetterDNS-portable-win-x64
+          path: artifacts/BetterDNS
           if-no-files-found: error
