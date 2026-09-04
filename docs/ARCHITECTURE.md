@@ -36,7 +36,7 @@ Resolving an upstream hostname itself produces another intercepted DNS packet. P
 
 The service performs two independent actions while protection is active:
 
-1. WinDivert diverts non-loopback outbound UDP/53 at the kernel network layer. Inactive packets are reinjected unchanged. Active packets are held, resolved over the selected encrypted transport, and replaced with an inbound response that preserves the DNS transaction ID and reverses the original IP/UDP endpoints.
+1. WinDivert diverts outbound UDP/53 queries (QR=0), including loopback and injected queries. Active queries are resolved over the selected encrypted transport and replaced with a reply preserving the transaction ID and reversing the endpoints. Network replies are injected inbound; loopback replies are injected outbound, as required by Windows loopback classification. QR=1 replies are excluded from the filter. Inactive mode uses a no-match handle and never captures or reinjects packets. Mode changes cancel pending reads, await queries and dispose their handle before opening the new mode.
 2. A grouped outbound TCP/53 block rule covers every non-loopback destination. Windows Firewall compiles it to Windows Filtering Platform policy, enforced in the kernel network/transport layers.
 
 The service uses DoH3/DoH on port 443 and DoQ/DoT on port 853, so port 53 enforcement never blocks an upstream. BetterDNS intentionally does not globally block port 853 because that would also block its own DoQ/DoT clients without a separate application-identity callout policy.

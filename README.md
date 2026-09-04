@@ -1,11 +1,11 @@
 # BetterDNS
 
-BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, encrypted upstream transports, ordered failover and domain rules. VPN coexistence and full leak prevention are not yet validated. See the [runtime review](docs/REVIEW-0.2.4.md) before using it as your DNS enforcement layer.
+BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, encrypted upstream transports, ordered failover and domain rules. Version 0.2.5 was tested intercepting an injected DNS request on a connected IVPN WireGuard tunnel and answering it through HaGeZi DoH3. Universal VPN compatibility and persistent leak prevention are not claimed. See the [interception verification](docs/VERIFICATION-0.2.5.md).
 
 ## What is implemented
 
 - DNS-over-HTTP/3 (DoH3), DNS-over-QUIC (DoQ), DNS-over-TLS (DoT), and DNS-over-HTTPS (DoH).
-- A signed WinDivert kernel driver that captures outbound UDP DNS before it reaches a VPN tunnel or a competing local port 53 listener.
+- A WinDivert-based kernel interception path for outbound UDP DNS, including loopback and queries injected by another filter.
 - Ordered failover with timeouts, failure thresholds, cooldown circuits, live health, and no fallback to unencrypted DNS.
 - Exact, suffix, single-label wildcard, and regular-expression domain rules. Rules can route to another failover chain or block a domain.
 - A colorful dark-mode WPF GUI for resolvers, failover chains, rules, enforcement, health, and recent queries.
@@ -36,7 +36,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.2.4-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI exercises installation, repair and uninstall, in addition to the core and service integration tests.
+Download `BetterDNS-Setup-0.2.5-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
@@ -78,13 +78,13 @@ The live probe tests the four default DoH3 resolvers plus HaGeZi over DoH, DoT, 
 
 DNS protocol parsing, TLS, QUIC, rules, and failover run in the isolated LocalSystem service. Moving those parsers into a custom kernel driver would increase crash and attack risk without improving DNS privacy.
 
-WinDivert captures matching outbound UDP/53 packets at the network layer. The service resolves the payload over the selected encrypted chain and injects a reply. The filter excludes loopback and packets injected by other drivers. Highest WinDivert priority does not guarantee precedence over another product's WFP driver. TCP/53 is blocked rather than proxied.
+WinDivert captures outbound UDP/53 DNS queries, including loopback and queries injected by other drivers. The service resolves the payload over the selected encrypted chain and injects a reply. The DNS QR flag excludes replies from recapture. While disabled, a no-match driver handle captures no traffic. Activation/deactivation waits for the kernel worker to complete its transition. Highest WinDivert priority does not guarantee precedence over another product's WFP driver. TCP/53 is blocked rather than proxied.
 
 Current limits:
 
 1. An application that implements its own DoH on port 443 is indistinguishable from ordinary HTTPS without TLS interception. BetterDNS does not break HTTPS to inspect it.
 2. Native TCP DNS is blocked rather than proxied. Normal Windows DNS uses UDP; oversized encrypted answers are returned in the intercepted UDP response. Applications that insist on TCP/53 fail closed.
-3. Loopback queries, other drivers' injected packets and app-owned encrypted DNS can bypass this implementation. VPN/Portmaster compatibility requires live testing.
+3. App-owned encrypted DNS is outside this filter. Other VPN/firewall combinations still require live testing; traffic blocked before reaching this interception layer cannot be recovered here.
 4. UDP interception ends if the service crashes or stops; there is currently no persistent UDP kill switch.
 
 See [Architecture](docs/ARCHITECTURE.md) and [Security](SECURITY.md) for the trust and failure model.

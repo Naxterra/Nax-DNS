@@ -12,8 +12,12 @@ public sealed class KernelDnsInterceptorWorker(
     EnforcementState enforcementState,
     ILogger<KernelDnsInterceptorWorker> logger) : BackgroundService
 {
-    private const int PacketBufferSize = ushort.MaxValue;
-    private readonly SemaphoreSlim concurrency = new(256, 256);
+    // QR=0 restricts interception to queries, including VPN-injected and loopback queries.
+    // Replies generated here are QR=1 and cannot enter this interception path again.
+    internal const string QueryFilter =
+        "outbound and udp.DstPort == 53 and udp.PayloadLength >= 12 and udp.Payload[2] < 128";
+
+    private bool CaptureEnabled => configurationStore.Current is { Active: true, Enforcement.Enabled: true };
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -21,104 +25,94 @@ public sealed class KernelDnsInterceptorWorker(
         {
             try
             {
-                await RunInterceptionAsync(stoppingToken).ConfigureAwait(false);
+                await RunModeAsync(CaptureEnabled, stoppingToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception error)
             {
                 logger.LogError(error, "Kernel DNS interception driver is unavailable.");
-                enforcementState.Update(false, "Kernel interception driver unavailable", error.Message, driverReady: false);
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+                enforcementState.Update(false, "Kernel interception driver unavailable", error.Message);
+                try { await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             }
         }
+        enforcementState.Update(false, "Kernel interception stopped");
     }
 
-    public override void Dispose()
+    private async Task RunModeAsync(bool active, CancellationToken stoppingToken)
     {
-        concurrency.Dispose();
-        base.Dispose();
-    }
-
-    private async Task RunInterceptionAsync(CancellationToken cancellationToken)
-    {
-        DivertFilter filter = "outbound and !loopback and !impostor and udp.DstPort == 53";
-        using var divert = new DivertService(
-            filter,
-            DivertLayer.Network,
-            DivertService.HighestPriority,
-            DivertFlags.None,
+        // A no-match handle verifies driver readiness without diverting or reinjecting any
+        // traffic while disabled. This avoids loops with other WFP injection drivers.
+        using var divert = new DivertService((DivertFilter)(active ? QueryFilter : "false"),
+            DivertLayer.Network, DivertService.HighestPriority, DivertFlags.None,
             runContinuationsAsynchronously: true);
-        enforcementState.Update(
-            configurationStore.Current.Active,
-            $"WinDivert {divert.Version} kernel interception driver ready",
+        enforcementState.Update(active,
+            active ? $"WinDivert {divert.Version} kernel DNS interception active"
+                   : $"WinDivert {divert.Version} driver ready; protection disabled",
             driverReady: true);
-        logger.LogInformation("WinDivert {Version} is intercepting outbound UDP DNS at kernel priority {Priority}.", divert.Version, DivertService.HighestPriority);
 
-        while (!cancellationToken.IsCancellationRequested)
+        if (!active)
         {
-            var buffer = new byte[PacketBufferSize];
-            var addresses = new DivertAddress[1];
-            var (packetLength, addressLength) = await divert
-                .ReceiveAsync(buffer, addresses, cancellationToken)
-                .ConfigureAwait(false);
-            if (packetLength <= 0 || addressLength != 1)
-            {
-                continue;
-            }
+            while (!CaptureEnabled) await Task.Delay(100, stoppingToken).ConfigureAwait(false);
+            return;
+        }
 
-            var packet = buffer.AsMemory(0, packetLength).ToArray();
-            var address = addresses[0];
-            await concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
-            _ = ProcessPacketAsync(divert, packet, address, cancellationToken).ContinueWith(
-                _ => concurrency.Release(),
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+        using var mode = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var monitor = MonitorModeAsync(mode, stoppingToken);
+        using var concurrency = new SemaphoreSlim(256, 256);
+        var pending = new List<Task>();
+        try
+        {
+            while (!mode.IsCancellationRequested)
+            {
+                var packet = new byte[ushort.MaxValue];
+                var addresses = new DivertAddress[1];
+                var (length, count) = await divert.ReceiveAsync(packet, addresses, mode.Token).ConfigureAwait(false);
+                if (length <= 0 || count != 1) continue;
+                await concurrency.WaitAsync(mode.Token).ConfigureAwait(false);
+                pending.RemoveAll(task => task.IsCompleted);
+                pending.Add(ProcessWithSlotAsync(divert, packet.AsMemory(0, length), addresses[0], concurrency, mode.Token));
+            }
+        }
+        catch (OperationCanceledException) when (mode.IsCancellationRequested) { }
+        finally
+        {
+            mode.Cancel();
+            await monitor.ConfigureAwait(false);
+            // Keep the native handle and semaphore alive until every pending query completes.
+            await Task.WhenAll(pending).ConfigureAwait(false);
         }
     }
 
-    private async Task ProcessPacketAsync(
-        DivertService divert,
-        byte[] packet,
-        DivertAddress address,
-        CancellationToken cancellationToken)
+    private async Task MonitorModeAsync(CancellationTokenSource mode, CancellationToken stoppingToken)
     {
         try
         {
-            var configuration = configurationStore.Current;
-            if (!configuration.Active || !configuration.Enforcement.Enabled)
-            {
-                await divert.SendAsync(packet, new[] { address }, cancellationToken).ConfigureAwait(false);
-                enforcementState.Update(false, $"WinDivert {divert.Version} driver ready; protection disabled", driverReady: true);
-                return;
-            }
-
-            if (!UdpPacketRewriter.TryGetDnsPayload(packet, out var querySpan))
-            {
-                throw new InvalidDataException("Intercepted packet did not contain a complete DNS/UDP payload.");
-            }
-
-            var query = querySpan.ToArray();
-            var dnsResponse = await router.ResolveAsync(query, configuration, cancellationToken).ConfigureAwait(false);
-            var responsePacket = UdpPacketRewriter.CreateResponse(packet, dnsResponse);
-            address.IsOutbound = false;
-            if (!DivertHelper.CalculateChecksums(responsePacket, ref address, DivertHelperFlags.None))
-            {
-                throw new InvalidDataException("WinDivert could not calculate response packet checksums.");
-            }
-
-            await divert.SendAsync(responsePacket, new[] { address }, cancellationToken).ConfigureAwait(false);
-            enforcementState.Update(true, $"WinDivert {divert.Version} kernel DNS interception active", driverReady: true);
+            while (CaptureEnabled && !mode.IsCancellationRequested)
+                await Task.Delay(100, mode.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (mode.IsCancellationRequested || stoppingToken.IsCancellationRequested) { }
+        finally { mode.Cancel(); }
+    }
+
+    private async Task ProcessWithSlotAsync(DivertService divert, ReadOnlyMemory<byte> packet,
+        DivertAddress address, SemaphoreSlim concurrency, CancellationToken cancellationToken)
+    {
+        try
         {
+            if (!UdpPacketRewriter.TryGetDnsPayload(packet.Span, out var payload))
+                throw new InvalidDataException("Intercepted packet has no complete DNS payload.");
+            var query = payload.ToArray();
+            var answer = await router.ResolveAsync(query, configurationStore.Current, cancellationToken).ConfigureAwait(false);
+            var response = UdpPacketRewriter.CreateResponse(packet.Span, answer);
+            // Windows classifies local-to-local packets as outbound, including the reply.
+            address.IsOutbound = address.IsLoopback;
+            if (!DivertHelper.CalculateChecksums(response, ref address, DivertHelperFlags.None))
+                throw new InvalidDataException("Failed to calculate DNS response checksums.");
+            await divert.SendAsync(response, new[] { address }, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception error)
-        {
-            logger.LogWarning(error, "An intercepted DNS packet was dropped fail-closed.");
-        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception error) { logger.LogWarning(error, "An intercepted DNS query could not be answered."); }
+        finally { concurrency.Release(); }
     }
 }

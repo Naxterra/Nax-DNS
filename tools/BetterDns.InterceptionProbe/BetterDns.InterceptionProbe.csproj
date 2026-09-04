@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/BetterDns.Core/BetterDns.Core.csproj" />
+    <PackageReference Include="Divert.Windows" Version="3.0.0" />
+    <PackageReference Include="Native.WinDivert" Version="2.2.2" ExcludeAssets="all" />
+  </ItemGroup>
+</Project>

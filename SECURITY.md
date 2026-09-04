@@ -12,7 +12,7 @@ The Windows service runs as LocalSystem because loading the signed packet-divers
 
 - Upstream DNS payloads are sent only over DoH3, DoQ, DoT, or DoH as selected. There is no automatic plaintext fallback.
 - TLS certificates are validated against the configured hostname. Bootstrap IPs choose where to connect; they do not bypass name validation.
-- Outbound non-loopback UDP/53 is diverted by the signed kernel driver and not reinjected while protection is active; TCP/53 is blocked fail-closed.
+- Outbound UDP/53 queries are diverted, including loopback and injected queries; original queries are not reinjected while protection is active. TCP/53 is blocked. UDP diversion stops if the service exits; this is not a persistent UDP kill switch.
 - BetterDNS does not intercept arbitrary HTTPS. An application with its own DoH implementation can bypass OS DNS, as it can with other local DNS proxies.
 - Another administrator or equal/higher-priority kernel component can alter policy. BetterDNS uses WinDivert's highest priority but is not a security boundary against a hostile administrator.
 

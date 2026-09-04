@@ -18,6 +18,32 @@ try {
         if ($process.ExitCode -ne 0) { throw "$phase installer exited $($process.ExitCode)." }
         & (Join-Path $target 'Service\BetterDns.Service.exe') --check-health
         if ($LASTEXITCODE -ne 0) { throw "$phase service health failed." }
+        if ($phase -eq 'fresh') {
+            $probe = Join-Path $repo 'tools\BetterDns.InterceptionProbe\bin\Release\net11.0-windows\win-x64\BetterDns.InterceptionProbe.exe'
+            # The resolver hostname is answered from configured bootstrap IPs, avoiding
+            # dependence on external UDP/443 availability on hosted CI machines.
+            & $probe 127.0.0.1 (Join-Path $logs 'loopback-interception.json') root.hagezi.org
+            if ($LASTEXITCODE -ne 0) { throw 'Loopback DNS interception failed.' }
+            $gui = Start-Process (Join-Path $target 'App\BetterDNS.exe') -PassThru
+            try {
+                $deadline = (Get-Date).AddSeconds(20)
+                do {
+                    Start-Sleep -Milliseconds 250
+                    $gui.Refresh()
+                    if ($gui.HasExited) { throw "Published GUI crashed with exit code $($gui.ExitCode)." }
+                } while ($gui.MainWindowHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline)
+                if ($gui.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Published GUI did not create its window.' }
+                Start-Sleep -Seconds 4
+                $gui.Refresh()
+                if ($gui.HasExited) { throw 'Published GUI exited after creating its window.' }
+            }
+            finally {
+                if (-not $gui.HasExited) {
+                    $gui.CloseMainWindow() | Out-Null
+                    if (-not $gui.WaitForExit(5000)) { $gui.Kill() }
+                }
+            }
+        }
     }
     $uninstall = Start-Process (Join-Path $target 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="' + (Join-Path $logs 'uninstall.log') + '"')) -PassThru -WindowStyle Hidden
     if (-not $uninstall.WaitForExit(60000)) { $uninstall.Kill(); throw 'Uninstall timed out.' }

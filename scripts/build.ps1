@@ -38,7 +38,8 @@ try {
         throw 'The build-time WinDivert extraction did not produce the expected x64 files.'
     }
 
-    dotnet publish 'src\BetterDns.Gui\BetterDns.Gui.csproj' -c Release -r $Runtime --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o (Join-Path $artifactRoot 'App')
+    # WPF mixed-mode assemblies (DirectWriteForwarder) must remain beside the app on .NET 11.
+    dotnet publish 'src\BetterDns.Gui\BetterDns.Gui.csproj' -c Release -r $Runtime --self-contained true -p:PublishSingleFile=false -o (Join-Path $artifactRoot 'App')
     if ($LASTEXITCODE -ne 0) { throw 'GUI publish failed.' }
 
     Copy-Item -LiteralPath 'scripts\install-service.ps1' -Destination $artifactRoot

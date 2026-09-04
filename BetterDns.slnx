@@ -10,5 +10,6 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/BetterDns.Probe/BetterDns.Probe.csproj" />
+    <Project Path="tools/BetterDns.InterceptionProbe/BetterDns.InterceptionProbe.csproj" />
   </Folder>
 </Solution>

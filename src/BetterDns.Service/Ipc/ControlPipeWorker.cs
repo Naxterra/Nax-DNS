@@ -127,6 +127,8 @@ public sealed class ControlPipeWorker(
                 {
                     if (options.Diagnostic)
                         throw new InvalidOperationException("Protection cannot be enabled in diagnostic mode.");
+                    if (!configurationStore.Current.Enforcement.Enabled)
+                        throw new InvalidOperationException("Enable DNS enforcement in configuration before activating protection.");
                     if (!enforcementState.Snapshot().DriverReady)
                     {
                         throw new InvalidOperationException("Protection was not enabled because the kernel DNS interception driver is not ready.");
@@ -144,6 +146,26 @@ public sealed class ControlPipeWorker(
 
                 var changed = configurationStore.Current with { Active = active };
                 configurationStore.Save(changed);
+                if (!options.Diagnostic)
+                {
+                    try
+                    {
+                        using var transition = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        transition.CancelAfter(TimeSpan.FromSeconds(10));
+                        while (enforcementState.Snapshot() is var status &&
+                               (!status.DriverReady || status.Active != active))
+                        {
+                            if (active && status.LastError is not null)
+                                throw new InvalidOperationException(status.LastError);
+                            await Task.Delay(50, transition.Token).ConfigureAwait(false);
+                        }
+                    }
+                    catch
+                    {
+                        if (active) configurationStore.Save(changed with { Active = false });
+                        throw;
+                    }
+                }
                 return new(true, changed);
 
             default:
