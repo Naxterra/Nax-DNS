@@ -8,7 +8,7 @@ internal static class PowerShellRunner
     {
         var start = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
+            FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"),
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -20,7 +20,7 @@ internal static class PowerShellRunner
         start.ArgumentList.Add("-ExecutionPolicy");
         start.ArgumentList.Add("Bypass");
         start.ArgumentList.Add("-Command");
-        start.ArgumentList.Add(script);
+        start.ArgumentList.Add("$ErrorActionPreference = 'Stop'; try { & { " + script + " }; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }");
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Unable to start Windows PowerShell.");
         var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);

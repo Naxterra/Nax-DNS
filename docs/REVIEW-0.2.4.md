@@ -14,6 +14,7 @@ The installed 0.2.3 service exited with Windows service error 1067. Application 
 - Verify the service through three application-level handshakes, version matching and driver readiness before Setup reports success.
 - Test the real installer on a disposable CI Windows machine, including repair and uninstall.
 - Retain the immutable, versioned WinDivert files on same-version repair. The real installer test reproduced an access-denied error when replacing an already-loaded driver, despite successful fresh installation and driver readiness.
+- Treat an absent BetterDNS firewall rule group as successful cleanup. The uninstall test caught PowerShell returning an error for this normal case.
 
 The integration tests use the same service registration, configuration store, pipe worker and client as the application. They explicitly exclude driver/firewall workers and cannot enable protection. Tests use temporary data and a unique current-user-only pipe.
 

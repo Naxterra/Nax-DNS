@@ -34,10 +34,18 @@ WinDivertNativeLoader.Configure();
 
 if (args.Contains("--restore", StringComparer.OrdinalIgnoreCase))
 {
-    var store = new ConfigurationStore();
-    await new FirewallLeakGuard().DisableAsync(CancellationToken.None).ConfigureAwait(false);
-    await new AdapterDnsManager().RestoreAsync(CancellationToken.None).ConfigureAwait(false);
-    store.Save(store.Current with { Active = false });
+    try
+    {
+        var store = new ConfigurationStore();
+        await new FirewallLeakGuard().DisableAsync(CancellationToken.None).ConfigureAwait(false);
+        await new AdapterDnsManager().RestoreAsync(CancellationToken.None).ConfigureAwait(false);
+        store.Save(store.Current with { Active = false });
+    }
+    catch (Exception error)
+    {
+        Console.WriteLine("Cleanup failed: " + error.Message);
+        Environment.ExitCode = 1;
+    }
     return;
 }
 

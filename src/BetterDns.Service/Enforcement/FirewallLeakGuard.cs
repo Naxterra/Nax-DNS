@@ -10,7 +10,9 @@ public sealed class FirewallLeakGuard
 
     public Task DisableAsync(CancellationToken cancellationToken)
     {
-        const string script = "Get-NetFirewallRule -Group 'BetterDNS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue";
+        // Enumerate then filter: querying a missing group directly makes PowerShell exit 1,
+        // even with SilentlyContinue. No matching rules is a successful cleanup.
+        const string script = "$ErrorActionPreference = 'Stop'; Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.Group -eq 'BetterDNS' } | Remove-NetFirewallRule -ErrorAction Stop; exit 0";
         return PowerShellRunner.RunAsync(script, cancellationToken);
     }
 }
