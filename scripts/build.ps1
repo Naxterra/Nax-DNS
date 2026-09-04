@@ -30,6 +30,13 @@ try {
     $winDivertPackage = Join-Path $env:USERPROFILE '.nuget\packages\native.windivert\2.2.2\native.windivert.2.2.2.nupkg'
     if (-not (Test-Path -LiteralPath $winDivertPackage)) { throw 'Native.WinDivert 2.2.2 was not restored.' }
     Copy-Item -LiteralPath $winDivertPackage -Destination (Join-Path $artifactRoot 'Service')
+    $winDivertOutput = Join-Path $artifactRoot 'Service\WinDivert-2.2.2'
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($winDivertPackage, $winDivertOutput)
+    $expectedDriver = Join-Path $winDivertOutput 'runtimes\win-x64\native\WinDivert64.sys'
+    $expectedLibrary = Join-Path $winDivertOutput 'runtimes\win-x64\native\WinDivert.dll'
+    if (-not (Test-Path -LiteralPath $expectedDriver) -or -not (Test-Path -LiteralPath $expectedLibrary)) {
+        throw 'The build-time WinDivert extraction did not produce the expected x64 files.'
+    }
 
     dotnet publish 'src\BetterDns.Gui\BetterDns.Gui.csproj' -c Release -r $Runtime --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o (Join-Path $artifactRoot 'App')
     if ($LASTEXITCODE -ne 0) { throw 'GUI publish failed.' }

@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)]
     [string]$InstallRoot,
 
-    [string]$LogPath = (Join-Path $env:ProgramData 'BetterDNS\installer.log')
+    [string]$LogPath = (Join-Path $env:TEMP 'BetterDNS-installer.log')
 )
 
 $ErrorActionPreference = 'Stop'

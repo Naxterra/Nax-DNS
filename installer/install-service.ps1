@@ -4,14 +4,12 @@ param(
     [Parameter(Mandatory)]
     [string]$InstallRoot,
 
-    [string]$LogPath = (Join-Path $env:ProgramData 'BetterDNS\installer.log')
+    [string]$LogPath = (Join-Path $env:TEMP 'BetterDNS-installer.log')
 )
 
 $ErrorActionPreference = 'Stop'
 $serviceRoot = Join-Path $InstallRoot 'Service'
 $serviceExe = Join-Path $serviceRoot 'BetterDns.Service.exe'
-$driverPackage = Join-Path $serviceRoot 'native.windivert.2.2.2.nupkg'
-$driverArchive = Join-Path $serviceRoot 'native.windivert.2.2.2.zip'
 $driverDirectory = Join-Path $serviceRoot 'WinDivert-2.2.2'
 $nativeDirectory = Join-Path $driverDirectory 'runtimes\win-x64\native'
 $driverDll = Join-Path $nativeDirectory 'WinDivert.dll'
@@ -40,20 +38,10 @@ if ($existing -and $existing.Status -ne 'Stopped') {
     $existing.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20))
 }
 
-if (-not (Test-Path -LiteralPath $driverPackage)) {
-    throw 'The signed WinDivert driver package is missing.'
-}
-
 if (-not (Test-Path -LiteralPath $driverDll) -or -not (Test-Path -LiteralPath $driverSys)) {
-    Copy-Item -LiteralPath $driverPackage -Destination $driverArchive -Force
-    Expand-Archive -LiteralPath $driverArchive -DestinationPath $driverDirectory -Force
-    Remove-Item -LiteralPath $driverArchive -Force
+    throw 'Setup did not deploy the expected pre-extracted WinDivert x64 driver files.'
 }
-
-if (-not (Test-Path -LiteralPath $driverDll) -or -not (Test-Path -LiteralPath $driverSys)) {
-    throw 'The WinDivert package did not contain the expected x64 driver files.'
-}
-Write-InstallLog "WinDivert was extracted in place; no endpoint-protection-sensitive driver copy was attempted."
+Write-InstallLog 'The pre-extracted WinDivert files are present in their final directory.'
 
 if ($existing) {
     $quotedBinary = '"' + $serviceExe + '"'

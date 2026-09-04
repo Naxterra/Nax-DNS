@@ -31,15 +31,11 @@ New-Item -ItemType Directory -Path $appRoot -Force | Out-Null
 Copy-Item -Path (Join-Path $sourceService '*') -Destination $serviceRoot -Recurse -Force
 Copy-Item -Path (Join-Path $sourceApp '*') -Destination $appRoot -Recurse -Force
 
-$driverPackage = Join-Path $serviceRoot 'native.windivert.2.2.2.nupkg'
-$driverArchive = Join-Path $serviceRoot 'native.windivert.2.2.2.zip'
 $driverDirectory = Join-Path $serviceRoot 'WinDivert-2.2.2'
 $driverDll = Join-Path $driverDirectory 'runtimes\win-x64\native\WinDivert.dll'
 $driverSys = Join-Path $driverDirectory 'runtimes\win-x64\native\WinDivert64.sys'
 if (-not (Test-Path -LiteralPath $driverDll) -or -not (Test-Path -LiteralPath $driverSys)) {
-    Copy-Item -LiteralPath $driverPackage -Destination $driverArchive -Force
-    Expand-Archive -LiteralPath $driverArchive -DestinationPath $driverDirectory -Force
-    Remove-Item -LiteralPath $driverArchive -Force
+    throw 'The build package is missing its pre-extracted WinDivert x64 driver files.'
 }
 
 New-Service -Name 'BetterDNS' -BinaryPathName ('"' + $serviceExe + '"') -DisplayName 'BetterDNS Resolver' -Description 'Encrypted DNS routing, failover, rules, and Windows DNS leak protection.' -StartupType Automatic | Out-Null
