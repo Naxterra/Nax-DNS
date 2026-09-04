@@ -114,4 +114,7 @@ public sealed record QueryLogEntry(
     string? RuleName,
     string? UpstreamName,
     string Result,
-    double ElapsedMilliseconds);
+    double ElapsedMilliseconds,
+    string? UpstreamId = null,
+    string? ChainId = null,
+    DnsProtocol? Protocol = null);

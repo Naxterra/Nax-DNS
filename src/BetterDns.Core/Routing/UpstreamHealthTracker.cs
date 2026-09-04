@@ -9,7 +9,7 @@ public sealed class UpstreamHealthTracker
 
     public bool CanTry(UpstreamDefinition upstream, FailoverChain chain, DateTimeOffset now)
     {
-        var state = states.GetOrAdd(upstream.Id, static _ => new());
+        var state = states.GetOrAdd(Key(upstream), static _ => new());
         lock (state)
         {
             return state.CircuitOpenUntil is null || state.CircuitOpenUntil <= now;
@@ -18,7 +18,7 @@ public sealed class UpstreamHealthTracker
 
     public void RecordSuccess(UpstreamDefinition upstream, TimeSpan latency)
     {
-        var state = states.GetOrAdd(upstream.Id, static _ => new());
+        var state = states.GetOrAdd(Key(upstream), static _ => new());
         lock (state)
         {
             state.Failures = 0;
@@ -30,7 +30,7 @@ public sealed class UpstreamHealthTracker
 
     public void RecordFailure(UpstreamDefinition upstream, FailoverChain chain, Exception error, DateTimeOffset now)
     {
-        var state = states.GetOrAdd(upstream.Id, static _ => new());
+        var state = states.GetOrAdd(Key(upstream), static _ => new());
         lock (state)
         {
             state.Failures++;
@@ -47,7 +47,7 @@ public sealed class UpstreamHealthTracker
         var now = DateTimeOffset.UtcNow;
         return upstreams.Select(upstream =>
         {
-            var state = states.GetOrAdd(upstream.Id, static _ => new());
+            var state = states.GetOrAdd(Key(upstream), static _ => new());
             lock (state)
             {
                 return new UpstreamStatus(
@@ -61,6 +61,8 @@ public sealed class UpstreamHealthTracker
             }
         }).ToArray();
     }
+
+    private static string Key(UpstreamDefinition upstream) => System.Text.Json.JsonSerializer.Serialize(upstream, JsonSettings.Wire);
 
     private sealed class MutableStatus
     {

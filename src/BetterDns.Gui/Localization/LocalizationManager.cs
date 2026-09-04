@@ -40,7 +40,7 @@ public static class LocalizationManager
 
         dictionaries.Insert(0, new ResourceDictionary
         {
-            Source = new Uri($"Resources/Strings.{normalized}.xaml", UriKind.Relative)
+            Source = new Uri($"/BetterDNS;component/Resources/Strings.{normalized}.xaml", UriKind.Relative)
         });
         CurrentLanguage = normalized;
         CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo(normalized);
@@ -54,7 +54,7 @@ public static class LocalizationManager
 
     public static string Get(string key, params object?[] arguments)
     {
-        var template = Application.Current.TryFindResource(key) as string ?? key;
+        var template = Application.Current?.TryFindResource(key) as string ?? key;
         return arguments.Length == 0
             ? template
             : string.Format(CultureInfo.CurrentUICulture, template, arguments);

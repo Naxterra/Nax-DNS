@@ -7,7 +7,12 @@ using BetterDns.Core.Configuration;
 
 namespace BetterDns.Core.Ipc;
 
-public sealed class ControlClient(string pipeName = ControlClient.PipeName)
+public interface IControlClient
+{
+    Task<T> SendAsync<T>(string command, object? payload, CancellationToken cancellationToken = default);
+}
+
+public sealed class ControlClient(string pipeName = ControlClient.PipeName) : IControlClient
 {
     public const string PipeName = "BetterDNS.Control";
     public JsonSerializerOptions JsonOptions => JsonSettings.Wire;

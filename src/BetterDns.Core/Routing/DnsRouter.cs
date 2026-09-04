@@ -105,7 +105,10 @@ public sealed class DnsRouter : IDisposable
                     rule?.Name,
                     upstream.Name,
                     DnsWire.ResponseCodeName(response),
-                    stopwatch.Elapsed.TotalMilliseconds));
+                    stopwatch.Elapsed.TotalMilliseconds,
+                    upstream.Id,
+                    chain.Id,
+                    upstream.Protocol));
                 return response;
             }
             catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -121,7 +124,8 @@ public sealed class DnsRouter : IDisposable
             rule?.Name,
             null,
             lastError is null ? "NO UPSTREAM" : "FAILOVER EXHAUSTED",
-            stopwatch.Elapsed.TotalMilliseconds));
+            stopwatch.Elapsed.TotalMilliseconds,
+            ChainId: chain.Id));
         return DnsWire.CreateErrorResponse(query.Span, 2);
     }
 

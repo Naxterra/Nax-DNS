@@ -76,6 +76,9 @@
             </Style>
 
             <Style TargetType="Button">
+                <Setter Property="ContentTemplate">
+                    <Setter.Value><DataTemplate><TextBlock Text="{Binding}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" /></DataTemplate></Setter.Value>
+                </Setter>
                 <Setter Property="Background" Value="{StaticResource PanelRaised}" />
                 <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
                 <Setter Property="BorderBrush" Value="#42506A" />
@@ -130,6 +133,8 @@
                 <Setter Property="Padding" Value="8,6" />
                 <Setter Property="SelectionBrush" Value="{StaticResource AccentPurple}" />
             </Style>
+            <DataTemplate x:Key="NamedItemTemplate"><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" /></DataTemplate>
+            <DataTemplate x:Key="DisplayNamedItemTemplate"><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" /></DataTemplate>
             <Style TargetType="ComboBox">
                 <Setter Property="Background" Value="#192235" />
                 <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
@@ -310,6 +315,23 @@
                 </Style.Triggers>
             </Style>
 
+            <Style TargetType="ListBox">
+                <Setter Property="Background" Value="#101625" />
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}" />
+            </Style>
+            <Style TargetType="ListBoxItem">
+                <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                <Setter Property="Padding" Value="9,6" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ListBoxItem">
+                            <Border x:Name="ItemBorder" Padding="{TemplateBinding Padding}" Background="Transparent"><ContentPresenter /></Border>
+                            <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#28465F" /></Trigger></ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <Style TargetType="TabControl">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />

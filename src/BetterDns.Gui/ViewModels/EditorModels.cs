@@ -2,15 +2,22 @@ using BetterDns.Core.Configuration;
 
 namespace BetterDns.Gui.ViewModels;
 
-public sealed class UpstreamEditor
+public sealed class UpstreamEditor : ObservableObject
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = "New resolver";
-    public DnsProtocol Protocol { get; set; } = DnsProtocol.Doh3;
-    public string Endpoint { get; set; } = "https://example.net/dns-query";
-    public string BootstrapAddresses { get; set; } = string.Empty;
-    public bool Enabled { get; set; } = true;
-    public int TimeoutMilliseconds { get; set; } = 3500;
+    private string id = Guid.NewGuid().ToString("N");
+    public string Id { get => id; set => Set(ref id, value); }
+    private string name = "New resolver";
+    public string Name { get => name; set => Set(ref name, value); }
+    private DnsProtocol protocol = DnsProtocol.Doh3;
+    public DnsProtocol Protocol { get => protocol; set => Set(ref protocol, value); }
+    private string endpoint = "https://example.net/dns-query";
+    public string Endpoint { get => endpoint; set => Set(ref endpoint, value); }
+    private string bootstrapAddresses = string.Empty;
+    public string BootstrapAddresses { get => bootstrapAddresses; set => Set(ref bootstrapAddresses, value); }
+    private bool enabled = true;
+    public bool Enabled { get => enabled; set => Set(ref enabled, value); }
+    private int timeoutMilliseconds = 3500;
+    public int TimeoutMilliseconds { get => timeoutMilliseconds; set => Set(ref timeoutMilliseconds, value); }
 
     public static UpstreamEditor From(UpstreamDefinition value) => new()
     {
@@ -35,13 +42,18 @@ public sealed class UpstreamEditor
     };
 }
 
-public sealed class ChainEditor
+public sealed class ChainEditor : ObservableObject
 {
-    public string Id { get; set; } = "new-chain";
-    public string Name { get; set; } = "New failover chain";
-    public string UpstreamIds { get; set; } = string.Empty;
-    public int FailureThreshold { get; set; } = 2;
-    public int CooldownSeconds { get; set; } = 30;
+    private string id = "new-chain";
+    public string Id { get => id; set => Set(ref id, value); }
+    private string name = "New failover chain";
+    public string Name { get => name; set => Set(ref name, value); }
+    private string upstreamIds = string.Empty;
+    public string UpstreamIds { get => upstreamIds; set => Set(ref upstreamIds, value); }
+    private int failureThreshold = 2;
+    public int FailureThreshold { get => failureThreshold; set => Set(ref failureThreshold, value); }
+    private int cooldownSeconds = 30;
+    public int CooldownSeconds { get => cooldownSeconds; set => Set(ref cooldownSeconds, value); }
 
     public static ChainEditor From(FailoverChain value) => new()
     {
@@ -62,15 +74,22 @@ public sealed class ChainEditor
     };
 }
 
-public sealed class RuleEditor
+public sealed class RuleEditor : ObservableObject
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = "New rule";
-    public string Pattern { get; set; } = "example.com";
-    public DomainMatchKind MatchKind { get; set; } = DomainMatchKind.Suffix;
-    public RuleAction Action { get; set; } = RuleAction.Route;
-    public string? ChainId { get; set; }
-    public bool Enabled { get; set; } = true;
+    private string id = Guid.NewGuid().ToString("N");
+    public string Id { get => id; set => Set(ref id, value); }
+    private string name = "New rule";
+    public string Name { get => name; set => Set(ref name, value); }
+    private string pattern = "example.com";
+    public string Pattern { get => pattern; set => Set(ref pattern, value); }
+    private DomainMatchKind matchKind = DomainMatchKind.Suffix;
+    public DomainMatchKind MatchKind { get => matchKind; set => Set(ref matchKind, value); }
+    private RuleAction action = RuleAction.Route;
+    public RuleAction Action { get => action; set => Set(ref action, value); }
+    private string? chainId;
+    public string? ChainId { get => chainId; set => Set(ref chainId, value); }
+    private bool enabled = true;
+    public bool Enabled { get => enabled; set => Set(ref enabled, value); }
 
     public static RuleEditor From(DnsRule value) => new()
     {
@@ -95,5 +114,5 @@ public sealed class RuleEditor
     };
 }
 
-public sealed record UpstreamStatusView(string Name, bool Available, string LatencyText, string? LastError);
+public sealed record UpstreamStatusView(string Name, string StateText, string LatencyText, string? LastError);
 public sealed record QueryView(string TimeText, string Domain, string? UpstreamName, string Result);

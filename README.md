@@ -4,6 +4,15 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+Version 0.3.0 replaces the configuration-first dashboard with a primary/backup workflow:
+
+1. Open **My DNS / Mein DNS** and choose **Primary DNS / Primärer DNS** and **Backup DNS / Ersatz-DNS** by provider name. Existing additional fallbacks remain under **More backups / Weitere Ersatzanbieter**.
+2. To add your own profile, choose **Add server**, select Control D, NextDNS, or another template, and paste your complete resolver URL. Choose whether to use it as primary, backup, or only keep it in the provider library.
+3. Click **Save & enable / Speichern & aktivieren**. The app saves the visible choices before checking and activating interception. **Save changes** alone does not turn routing on.
+4. The live panel identifies the provider and protocol of the most recent default-route response and highlights backup use. It shows Off or Waiting instead of claiming an idle/tested connection. Domain-rule traffic can use a different route.
+
+Provider names, protocols and usage roles have explicit display templates; the UI does not display internal class names. Unsaved edits and failed saves remain visible during refresh. Rules, manual chains and enforcement details are under **Advanced / Erweitert**. Editing the default route does not rewrite a chain still used by a domain rule. See [0.3.0 verification](docs/VERIFICATION-0.3.0.md).
+
 - DNS-over-HTTP/3 (DoH3), DNS-over-QUIC (DoQ), DNS-over-TLS (DoT), and DNS-over-HTTPS (DoH).
 - A WinDivert-based kernel interception path for outbound UDP DNS, including loopback and queries injected by another filter.
 - Ordered failover with timeouts, failure thresholds, cooldown circuits, live health, and no fallback to unencrypted DNS.
@@ -12,7 +21,7 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 - Complete English and German UI resources with automatic Windows-language detection and a live Deutsch/English selector.
 - A LocalSystem Windows service with an administrator-only named-pipe control channel.
 - No adapter DNS rewrite: current DHCP, static, VPN, Portmaster, and other resolver settings stay intact while intercepted replies are returned as if they came from the originally addressed DNS server.
-- Fail-closed TCP/53 blocking through Windows Filtering Platform-backed Windows Firewall policy. UDP/53 is diverted by the signed driver and never leaves the machine while active.
+- TCP/53 blocking through Windows Filtering Platform-backed Windows Firewall policy. UDP/53 queries reaching the active interceptor are diverted by the signed driver; precedence over other VPN/filter drivers is not guaranteed.
 - Bootstrap IP answers for configured resolver hostnames, preventing recursive interception when an encrypted transport resolves its own endpoint.
 - A single modern, dark, bilingual Setup executable with upgrade/repair support, service recovery, optional Desktop shortcut, language seeding, and safe uninstall lifecycle.
 
@@ -36,7 +45,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.2.6-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Version 0.2.6 fixes dark table selection and editing, and truncates long cell values with tooltips instead of allowing columns to overlap.
+Download `BetterDNS-Setup-0.3.0-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 

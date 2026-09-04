@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using BetterDns.Core.Configuration;
+using BetterDns.Core.Ipc;
 using BetterDns.Core.Dns;
 using BetterDns.Core.Routing;
 using BetterDns.Service.Configuration;

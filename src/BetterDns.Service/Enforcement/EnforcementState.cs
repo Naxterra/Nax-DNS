@@ -1,4 +1,4 @@
-using BetterDns.Service.Ipc;
+using BetterDns.Core.Ipc;
 
 namespace BetterDns.Service.Enforcement;
 

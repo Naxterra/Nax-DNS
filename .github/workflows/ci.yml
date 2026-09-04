@@ -54,6 +54,14 @@ jobs:
           path: artifacts/InstallerTest
           if-no-files-found: ignore
 
+      - name: Upload off-screen UI regression renders
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: gui-regression-renders
+          path: tests/BetterDns.Gui.Tests/bin/Release/net11.0-windows/TestResults/ui/*.png
+          if-no-files-found: ignore
+
       - name: Upload Setup executable
         uses: actions/upload-artifact@v6
         with:
