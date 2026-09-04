@@ -50,3 +50,5 @@ The `BetterDNS.Control` named pipe grants access only to LocalSystem and the bui
 ## Shutdown and recovery
 
 The installed service has automatic restart recovery. The uninstaller stops the service, runs `BetterDns.Service.exe --restore`, removes WFP-backed firewall rules and any legacy adapter backup from earlier builds, and then deletes the service. Configuration remains in ProgramData by default.
+
+The WinDivert native package is extracted directly into a versioned final directory and loaded through a managed native-library resolver. No post-extraction copy of the `.sys` file is performed, because endpoint protection may deliberately deny user-mode reads of driver images after they are written. LocalSystem still loads the signed driver from that final directory.

@@ -2,12 +2,22 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string]$InstallRoot
+    [string]$InstallRoot,
+
+    [string]$LogPath = (Join-Path $env:ProgramData 'BetterDNS\installer.log')
 )
 
 $ErrorActionPreference = 'Stop'
 $serviceExe = Join-Path $InstallRoot 'Service\BetterDns.Service.exe'
 $service = Get-Service -Name 'BetterDNS' -ErrorAction SilentlyContinue
+
+New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
+Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) BetterDNS service removal started."
+
+trap {
+    Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) UNINSTALL FAILED: $(($_ | Out-String).Trim())"
+    exit 1
+}
 
 if ($service -and $service.Status -ne 'Stopped') {
     Stop-Service -Name 'BetterDNS' -Force
@@ -25,3 +35,5 @@ if ($service) {
         throw 'Could not delete the BetterDNS service registration.'
     }
 }
+
+Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format o) BetterDNS service removal completed."

@@ -2,7 +2,7 @@
 
 BetterDNS dynamically uses [Divert.Windows 3.0.0](https://www.nuget.org/packages/Divert.Windows/3.0.0) and [WinDivert 2.2.2](https://github.com/basil00/WinDivert) for Windows kernel packet interception.
 
-Both components are distributed under the GNU Lesser General Public License, version 3. The installation keeps `Divert.Windows.dll`, `WinDivert.dll`, and `WinDivert64.sys` as separate replaceable files and installs the complete WinDivert license as `WinDivert-LICENSE.txt`. Their corresponding source is available from:
+Both components are distributed under the GNU Lesser General Public License, version 3. The installation keeps `Divert.Windows.dll`, `WinDivert.dll`, and `WinDivert64.sys` as separate replaceable files. The complete WinDivert license remains beside the native package contents in `Service\WinDivert-2.2.2\LICENSE`. Their corresponding source is available from:
 
 - https://github.com/gdlol/Divert.Windows
 - https://github.com/basil00/WinDivert

@@ -4,6 +4,8 @@ using BetterDns.Service.Enforcement;
 using BetterDns.Service.Ipc;
 using BetterDns.Service.Kernel;
 
+WinDivertNativeLoader.Configure();
+
 if (args.Contains("--restore", StringComparer.OrdinalIgnoreCase))
 {
     var store = new ConfigurationStore();

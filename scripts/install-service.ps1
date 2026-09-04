@@ -33,14 +33,14 @@ Copy-Item -Path (Join-Path $sourceApp '*') -Destination $appRoot -Recurse -Force
 
 $driverPackage = Join-Path $serviceRoot 'native.windivert.2.2.2.nupkg'
 $driverArchive = Join-Path $serviceRoot 'native.windivert.2.2.2.zip'
-$driverExtraction = Join-Path $serviceRoot '.windivert-package'
-Copy-Item -LiteralPath $driverPackage -Destination $driverArchive -Force
-Expand-Archive -LiteralPath $driverArchive -DestinationPath $driverExtraction -Force
-Copy-Item -LiteralPath (Join-Path $driverExtraction 'runtimes\win-x64\native\WinDivert.dll') -Destination $serviceRoot -Force
-Copy-Item -LiteralPath (Join-Path $driverExtraction 'runtimes\win-x64\native\WinDivert64.sys') -Destination $serviceRoot -Force
-Copy-Item -LiteralPath (Join-Path $driverExtraction 'LICENSE') -Destination (Join-Path $serviceRoot 'WinDivert-LICENSE.txt') -Force
-Remove-Item -LiteralPath $driverExtraction -Recurse -Force
-Remove-Item -LiteralPath $driverArchive -Force
+$driverDirectory = Join-Path $serviceRoot 'WinDivert-2.2.2'
+$driverDll = Join-Path $driverDirectory 'runtimes\win-x64\native\WinDivert.dll'
+$driverSys = Join-Path $driverDirectory 'runtimes\win-x64\native\WinDivert64.sys'
+if (-not (Test-Path -LiteralPath $driverDll) -or -not (Test-Path -LiteralPath $driverSys)) {
+    Copy-Item -LiteralPath $driverPackage -Destination $driverArchive -Force
+    Expand-Archive -LiteralPath $driverArchive -DestinationPath $driverDirectory -Force
+    Remove-Item -LiteralPath $driverArchive -Force
+}
 
 New-Service -Name 'BetterDNS' -BinaryPathName ('"' + $serviceExe + '"') -DisplayName 'BetterDNS Resolver' -Description 'Encrypted DNS routing, failover, rules, and Windows DNS leak protection.' -StartupType Automatic | Out-Null
 & sc.exe failure BetterDNS reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
