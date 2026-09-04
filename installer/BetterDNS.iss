@@ -1,5 +1,5 @@
 #define MyAppName "BetterDNS"
-#define MyAppVersion "0.2.5"
+#define MyAppVersion "0.2.6"
 #define MyAppPublisher "Naxterra"
 #define MyAppURL "https://github.com/Naxterra/Better-DNS-Manager"
 #define MyAppExeName "BetterDNS.exe"

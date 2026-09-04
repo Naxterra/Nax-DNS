@@ -132,10 +132,10 @@
                                 </StackPanel>
                                 <DataGrid ItemsSource="{Binding UpstreamStatuses}" IsReadOnly="True">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="{DynamicResource Column.Resolver}" Binding="{Binding Name}" Width="*" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Resolver}" Binding="{Binding Name}" Width="*" />
                                         <DataGridCheckBoxColumn Header="{DynamicResource Column.Ready}" Binding="{Binding Available}" Width="62" />
-                                        <DataGridTextColumn Header="{DynamicResource Column.Latency}" Binding="{Binding LatencyText}" Width="82" />
-                                        <DataGridTextColumn Header="{DynamicResource Column.LastError}" Binding="{Binding LastError}" Width="1.1*" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Latency}" Binding="{Binding LatencyText}" Width="82" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.LastError}" Binding="{Binding LastError}" Width="1.1*" />
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </DockPanel>
@@ -149,10 +149,10 @@
                                 </StackPanel>
                                 <DataGrid ItemsSource="{Binding Queries}" IsReadOnly="True">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="{DynamicResource Column.Time}" Binding="{Binding TimeText}" Width="75" />
-                                        <DataGridTextColumn Header="{DynamicResource Column.Domain}" Binding="{Binding Domain}" Width="*" />
-                                        <DataGridTextColumn Header="{DynamicResource Column.Resolver}" Binding="{Binding UpstreamName}" Width="1.1*" />
-                                        <DataGridTextColumn Header="{DynamicResource Column.Result}" Binding="{Binding Result}" Width="92" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Time}" Binding="{Binding TimeText}" Width="75" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Domain}" Binding="{Binding Domain}" Width="*" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Resolver}" Binding="{Binding UpstreamName}" Width="1.1*" />
+                                        <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Result}" Binding="{Binding Result}" Width="92" />
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </DockPanel>
@@ -179,14 +179,14 @@
                         <DataGrid ItemsSource="{Binding Upstreams}" SelectedItem="{Binding SelectedUpstream}">
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="{DynamicResource Column.On}" Binding="{Binding Enabled}" Width="47" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.2*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.2*" />
                                 <DataGridTemplateColumn Header="{DynamicResource Column.Protocol}" Width="95">
                                     <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Protocol}" /></DataTemplate></DataGridTemplateColumn.CellTemplate>
                                     <DataGridTemplateColumn.CellEditingTemplate><DataTemplate><ComboBox SelectedItem="{Binding Protocol, UpdateSourceTrigger=PropertyChanged}" ItemsSource="{Binding DataContext.Protocols, RelativeSource={RelativeSource AncestorType=Window}}" /></DataTemplate></DataGridTemplateColumn.CellEditingTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="{DynamicResource Column.Endpoint}" Binding="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Bootstrap}" Binding="{Binding BootstrapAddresses, UpdateSourceTrigger=PropertyChanged}" Width="1.5*" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Timeout}" Binding="{Binding TimeoutMilliseconds, UpdateSourceTrigger=PropertyChanged}" Width="95" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Endpoint}" Binding="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Bootstrap}" Binding="{Binding BootstrapAddresses, UpdateSourceTrigger=PropertyChanged}" Width="1.5*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Timeout}" Binding="{Binding TimeoutMilliseconds, UpdateSourceTrigger=PropertyChanged}" Width="95" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
@@ -207,11 +207,11 @@
                         </StackPanel>
                         <DataGrid ItemsSource="{Binding Chains}" SelectedItem="{Binding SelectedChain}">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="{DynamicResource Column.Id}" Binding="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Width="165" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.2*" />
-                                <DataGridTextColumn Header="{DynamicResource Column.ResolverOrder}" Binding="{Binding UpstreamIds, UpdateSourceTrigger=PropertyChanged}" Width="2.2*" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Failures}" Binding="{Binding FailureThreshold, UpdateSourceTrigger=PropertyChanged}" Width="82" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Cooldown}" Binding="{Binding CooldownSeconds, UpdateSourceTrigger=PropertyChanged}" Width="95" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Id}" Binding="{Binding Id, UpdateSourceTrigger=PropertyChanged}" Width="165" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.2*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.ResolverOrder}" Binding="{Binding UpstreamIds, UpdateSourceTrigger=PropertyChanged}" Width="2.2*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Failures}" Binding="{Binding FailureThreshold, UpdateSourceTrigger=PropertyChanged}" Width="82" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Cooldown}" Binding="{Binding CooldownSeconds, UpdateSourceTrigger=PropertyChanged}" Width="95" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
@@ -232,8 +232,8 @@
                         <DataGrid ItemsSource="{Binding Rules}" SelectedItem="{Binding SelectedRule}">
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="{DynamicResource Column.On}" Binding="{Binding Enabled}" Width="47" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
-                                <DataGridTextColumn Header="{DynamicResource Column.Pattern}" Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" Width="1.4*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Pattern}" Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" Width="1.4*" />
                                 <DataGridTemplateColumn Header="{DynamicResource Column.Match}" Width="105">
                                     <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding MatchKind}" /></DataTemplate></DataGridTemplateColumn.CellTemplate>
                                     <DataGridTemplateColumn.CellEditingTemplate><DataTemplate><ComboBox SelectedItem="{Binding MatchKind}" ItemsSource="{Binding DataContext.MatchKinds, RelativeSource={RelativeSource AncestorType=Window}}" /></DataTemplate></DataGridTemplateColumn.CellEditingTemplate>
@@ -242,7 +242,7 @@
                                     <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding Action}" /></DataTemplate></DataGridTemplateColumn.CellTemplate>
                                     <DataGridTemplateColumn.CellEditingTemplate><DataTemplate><ComboBox SelectedItem="{Binding Action}" ItemsSource="{Binding DataContext.RuleActions, RelativeSource={RelativeSource AncestorType=Window}}" /></DataTemplate></DataGridTemplateColumn.CellEditingTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="{DynamicResource Column.Chain}" Binding="{Binding ChainId, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Chain}" Binding="{Binding ChainId, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>

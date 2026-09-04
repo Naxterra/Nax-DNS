@@ -36,7 +36,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.2.5-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test.
+Download `BetterDNS-Setup-0.2.6-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Version 0.2.6 fixes dark table selection and editing, and truncates long cell values with tooltips instead of allowing columns to overlap.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
