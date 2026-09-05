@@ -12,10 +12,11 @@ public sealed class KernelDnsInterceptorWorker(
     EnforcementState enforcementState,
     ILogger<KernelDnsInterceptorWorker> logger) : BackgroundService
 {
-    // QR=0 restricts interception to queries, including VPN-injected and loopback queries.
+    // Local-to-local traffic belongs to local sockets and must not be intercepted twice.
+    // VPN DNS addresses are remote tunnel peers, so they remain covered by this filter.
     // Replies generated here are QR=1 and cannot enter this interception path again.
     internal const string QueryFilter =
-        "outbound and udp.DstPort == 53 and udp.PayloadLength >= 12 and udp.Payload[2] < 128";
+        "outbound and not loopback and udp.DstPort == 53 and udp.PayloadLength >= 12 and udp.Payload[2] < 128";
 
     private bool CaptureEnabled => configurationStore.Current is { Active: true, Enforcement.Enabled: true };
 

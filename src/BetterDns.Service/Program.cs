@@ -18,9 +18,11 @@ if (args.Contains("--check-health", StringComparer.OrdinalIgnoreCase))
             if (state.Version != expected) throw new InvalidDataException($"Expected service {expected}; received {state.Version}.");
             if (!state.Enforcement.DriverReady)
                 throw new InvalidOperationException(state.Enforcement.LastError ?? state.Enforcement.Status);
+            if (state.LocalDns?.Ready != true)
+                throw new InvalidOperationException("Local UDP/TCP DNS listener is not ready: " + state.LocalDns?.ErrorCode);
             if (attempt < 2) await Task.Delay(TimeSpan.FromSeconds(2));
         }
-        Console.WriteLine("Service configuration, IPC and kernel readiness checks passed.");
+        Console.WriteLine("Service configuration, IPC, kernel and local UDP/TCP DNS readiness checks passed.");
     }
     catch (Exception error)
     {

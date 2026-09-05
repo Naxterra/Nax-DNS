@@ -1,5 +1,5 @@
 #define MyAppName "BetterDNS"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.5.1"
 #define MyAppPublisher "Naxterra"
 #define MyAppURL "https://github.com/Naxterra/Better-DNS-Manager"
 #define MyAppExeName "BetterDNS.exe"
@@ -67,6 +67,7 @@ Source: "..\artifacts\BetterDNS\Service\WinDivert-2.2.2\*"; DestDir: "{app}\Serv
 Source: "..\artifacts\BetterDNS\App\*"; DestDir: "{app}\App"; Excludes: "*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "install-service.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "uninstall-service.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
+Source: "manage-service.ps1"; DestDir: "{app}\Installer"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion

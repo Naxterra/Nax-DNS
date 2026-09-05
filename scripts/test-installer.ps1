@@ -49,6 +49,37 @@ try {
             }
         }
     }
+    # Exercise the exact helper used by the GUI, never on a user's live machine.
+    $configurationPath = Join-Path $env:ProgramData 'BetterDNS\config.json'
+    $beforeServiceActions = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+    foreach ($action in 'Stop', 'Start', 'Uninstall', 'Install') {
+        $manageScript = Join-Path $target 'Installer\manage-service.ps1'
+        $actionLog = Join-Path $logs "service-$action.log"
+        $manager = Start-Process (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $manageScript + '"'),
+            '-InstallRoot', ('"' + $target + '"'), '-Action', $action, '-LogPath', ('"' + $actionLog + '"')
+        ) -PassThru -WindowStyle Hidden
+        if (-not $manager.WaitForExit(120000)) { $manager.Kill(); throw "Service $action timed out." }
+        if ($manager.ExitCode -ne 0) { throw "Service $action failed with exit $($manager.ExitCode)." }
+        $state = Get-Service BetterDNS -ErrorAction SilentlyContinue
+        try {
+            if ($action -eq 'Uninstall') {
+                if ($state) { throw 'Service registration remains after service uninstall.' }
+            } elseif ($action -eq 'Stop') {
+                if (-not $state -or $state.Status -ne 'Stopped') { throw 'Service did not stop.' }
+            } elseif (-not $state -or $state.Status -ne 'Running') { throw "Service is not running after $action." }
+        } finally { if ($state) { $state.Dispose() } }
+        if (-not (Test-Path -LiteralPath (Join-Path $target 'App\BetterDNS.exe'))) { throw 'Service action removed the GUI.' }
+        $afterServiceAction = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+        if ($afterServiceAction.Active) { throw 'A service action unexpectedly enabled routing.' }
+        foreach ($property in 'Upstreams', 'Chains', 'Rules') {
+            if (($beforeServiceActions.$property | ConvertTo-Json -Depth 30 -Compress) -cne
+                ($afterServiceAction.$property | ConvertTo-Json -Depth 30 -Compress)) { throw "Service action changed $property." }
+        }
+        if ($action -in 'Stop', 'Uninstall') {
+            if (Get-NetFirewallRule -ErrorAction Stop | Where-Object Group -eq 'BetterDNS') { throw 'BetterDNS firewall policy remains after stopping.' }
+        }
+    }
     $uninstall = Start-Process (Join-Path $target 'unins000.exe') -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="' + (Join-Path $logs 'uninstall.log') + '"')) -PassThru -WindowStyle Hidden
     if (-not $uninstall.WaitForExit(60000)) { $uninstall.Kill(); throw 'Uninstall timed out.' }
     if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exited $($uninstall.ExitCode)." }

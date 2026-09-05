@@ -46,6 +46,8 @@ try {
     Copy-Item -LiteralPath 'scripts\uninstall-service.ps1' -Destination $artifactRoot
     Copy-Item -LiteralPath 'README.md' -Destination $artifactRoot
     Copy-Item -LiteralPath 'THIRD_PARTY_NOTICES.md' -Destination $artifactRoot
+    New-Item -ItemType Directory -Path (Join-Path $artifactRoot 'Installer') -Force | Out-Null
+    Copy-Item -LiteralPath 'installer\install-service.ps1', 'installer\uninstall-service.ps1', 'installer\manage-service.ps1' -Destination (Join-Path $artifactRoot 'Installer')
     Write-Host "Package created at $artifactRoot" -ForegroundColor Green
 
     if ($BuildInstaller) {

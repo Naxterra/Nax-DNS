@@ -9,6 +9,7 @@ using BetterDns.Core.Dns;
 using BetterDns.Core.Routing;
 using BetterDns.Service.Configuration;
 using BetterDns.Service.Enforcement;
+using BetterDns.Service.LocalDns;
 
 namespace BetterDns.Service.Ipc;
 
@@ -18,6 +19,7 @@ public sealed class ControlPipeWorker(
     QueryLog queryLog,
     DnsRouter router,
     EnforcementState enforcementState,
+    LocalDnsState localDnsState,
     ControlPipeOptions options,
     ILogger<ControlPipeWorker> logger) : BackgroundService
 {
@@ -113,7 +115,8 @@ public sealed class ControlPipeWorker(
                     health.Snapshot(configuration.Upstreams),
                     queryLog.Snapshot(),
                     enforcementState.Snapshot(),
-                    router.ProbeSnapshot(configuration.Upstreams));
+                    router.ProbeSnapshot(configuration.Upstreams),
+                    localDnsState.Snapshot());
                 return new(true, snapshot);
 
             case "testupstreams":
@@ -153,6 +156,8 @@ public sealed class ControlPipeWorker(
                     {
                         throw new InvalidOperationException("Protection was not enabled because the kernel DNS interception driver is not ready.");
                     }
+                    if (!localDnsState.Snapshot().Ready)
+                        return new(false, Error: "Local DNS listener is not ready.", ErrorCode: "local-dns-unavailable");
 
                     var probe = await router.ResolveAsync(
                         DnsWire.CreateQuery("example.com"),

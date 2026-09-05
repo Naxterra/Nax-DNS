@@ -51,7 +51,7 @@ public sealed class RenderedControlsTests
             foreach (var language in new[] { "de", "en" })
             {
                 LocalizationManager.Apply(language, persist: false);
-                using var model = new MainViewModel(new RenderClient());
+                using var model = new MainViewModel(new RenderClient(), new FakeServiceManager());
                 model.RefreshAsync().GetAwaiter().GetResult();
                 var window = new MainWindow(model);
                 var content = (FrameworkElement)window.Content;
@@ -79,7 +79,9 @@ public sealed class RenderedControlsTests
 
                 model.SelectedTabIndex = 1;
                 Layout(content, 1244, 860);
-                var providerGrid = Descendants<DataGrid>(content).Single();
+                Assert.DoesNotContain(Descendants<TextBlock>(content), text => text.Text == ".NET 11");
+                Assert.DoesNotContain(Descendants<Button>(content), button => button.Command == model.UsePrimaryCommand || button.Command == model.UseBackupCommand);
+                var providerGrid = Descendants<DataGrid>(content).Single(grid => ReferenceEquals(grid.ItemsSource, model.Upstreams));
                 Assert.True(providerGrid.IsReadOnly); // Only the explicit toggle control edits a row.
                 var checkbox = Descendants<CheckBox>(providerGrid).First(check => check.DataContext is UpstreamEditor);
                 Assert.True(checkbox.IsEnabled);
@@ -138,7 +140,7 @@ public sealed class RenderedControlsTests
                 Render(content, "rules-" + language);
                 model.SaveAsync().GetAwaiter().GetResult();
 
-                model.SelectedTabIndex = 2;
+                model.SelectedTabIndex = 1;
                 Layout(content, 1244, 860);
                 var testButton = Descendants<Button>(content).Single(button => button.Command == model.TestServersCommand);
                 Assert.True(testButton.Command!.CanExecute(null));
@@ -148,7 +150,21 @@ public sealed class RenderedControlsTests
                 Assert.Contains(LocalizationManager.Get("Error.Timeout"), statusText);
                 Assert.DoesNotContain(statusText, text => text.Contains("The operation was", StringComparison.Ordinal));
                 Assert.Contains(LocalizationManager.Get("Probe.Manual"), statusText);
+                Render(content, "servers-latency-" + language);
+                model.SelectedTabIndex = 2;
+                Layout(content, 1244, 860);
+                Assert.Same(model.Queries, Descendants<DataGrid>(content).Single().ItemsSource);
+                Assert.DoesNotContain(Descendants<Button>(content), button => button.Command == model.TestServersCommand);
                 Render(content, "activity-" + language);
+                model.SelectedTabIndex = 3;
+                Layout(content, 1244, 860);
+                Descendants<TabControl>(content).Last().SelectedIndex = 3;
+                Layout(content, 1244, 860);
+                Assert.Contains(Descendants<Button>(content), button => button.Command == model.StartServiceCommand);
+                Assert.Contains(Descendants<Button>(content), button => button.Command == model.StopServiceCommand);
+                Assert.Contains(Descendants<Button>(content), button => button.Command == model.InstallServiceCommand);
+                Assert.Contains(Descendants<Button>(content), button => button.Command == model.UninstallServiceCommand);
+                Render(content, "service-" + language);
 
                 var dialog = new ProviderEditorWindow();
                 Assert.IsType<LinearGradientBrush>(dialog.Background);
@@ -184,6 +200,8 @@ public sealed class RenderedControlsTests
 
     private static void Layout(FrameworkElement content, double width, double height)
     {
+        content.Width = width;
+        content.Height = height;
         content.Measure(new Size(width, height));
         content.Arrange(new Rect(0, 0, width, height));
         content.UpdateLayout();
@@ -224,7 +242,8 @@ public sealed class RenderedControlsTests
                 [new(DateTimeOffset.UtcNow, "example.com", null, "Cloudflare Public DNS", "NOERROR", 271, "cloudflare-security", "privacy-default", DnsProtocol.Doh3,
                     [new("hagezi-root", "HaGeZi Full Protection (Germany)", DnsProtocol.Doh3, DateTimeOffset.UtcNow, 250, "timeout", null),
                      new("cloudflare-security", "Cloudflare Public DNS", DnsProtocol.Doh3, DateTimeOffset.UtcNow, 21, null, "NOERROR")])],
-                new(false, "ready", null, null, true), results));
+                new(false, "ready", null, null, true), results,
+                new(true, ["127.0.0.1:53", "[::1]:53"])));
             if (command == "saveConfiguration") { configuration = (BetterDnsConfiguration)payload!; return Task.FromResult((T)(object)configuration); }
             if (command == "testUpstreams")
             {

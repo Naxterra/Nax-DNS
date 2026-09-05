@@ -3,6 +3,7 @@ using BetterDns.Service.Configuration;
 using BetterDns.Service.Enforcement;
 using BetterDns.Service.Ipc;
 using BetterDns.Service.Kernel;
+using BetterDns.Service.LocalDns;
 
 namespace BetterDns.Service;
 
@@ -21,8 +22,10 @@ public static class ServiceComposition
         services.AddSingleton<AdapterDnsManager>();
         services.AddSingleton<FirewallLeakGuard>();
         services.AddSingleton<EnforcementState>();
+        services.AddSingleton<LocalDnsState>();
         if (!diagnostic)
         {
+            services.AddHostedService<LocalDnsWorker>();
             services.AddHostedService<KernelDnsInterceptorWorker>();
             services.AddHostedService<EnforcementWorker>();
             services.AddHostedService<ResolverHealthWorker>();

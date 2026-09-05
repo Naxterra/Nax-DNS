@@ -4,11 +4,19 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.5.1 adds a real DNS listener on **127.0.0.1 and ::1, UDP and TCP port 53**, so VPN clients such as Windscribe can use BetterDNS as a local DNS server. Localhost traffic uses the listener; the WinDivert kernel path continues to intercept other outbound UDP/53 queries. Both paths use the same encrypted router, rules, failover state and query log. The listener never binds a LAN or wildcard address, refuses queries while routing is off, and reports a port conflict without stopping another DNS program.
+
+For Windscribe, set Connected DNS to 127.0.0.1. Strict DoH3 also requires **Unlock Streaming to be disabled in the Windscribe account**: Windscribe documents that this account feature prevents HTTP/3 from working through the VPN. BetterDNS deliberately does not downgrade DoH3 to DoH. See [Windscribe's known issue](https://github.com/Windscribe/Desktop-App/wiki/Known-Issues#http3-not-working) and [0.5.1 verification](docs/VERIFICATION-0.5.1.md).
+
+0.5.1 also moves DNS status, latency results and the test button into **DNS Servers / DNS-Server**. **Activity / Aktivität** now contains only the DNS query log and selected-query attempt details. Primary/fallback selection stays on **My DNS / Mein DNS**; the duplicate server-toolbar actions and runtime badge are removed.
+
+**Advanced → Windows service / Erweitert → Windows-Dienst** provides Start, Stop, Install and Uninstall with live Windows service status and confirmation prompts. It works without the resolver control connection. Stop and Uninstall turn routing off and restore BetterDNS network policy; app files and saved server/profile/rule configuration are preserved. Install also starts the service. Starting uses the saved routing setting; after a managed Stop/Uninstall, enable routing separately under My DNS. The installed service payload is required, and unsaved drafts must be saved before a service action.
+
 0.5.0 keeps DoH3 strict and defaults to **five minutes of sustained connection failure before provider failover**. Individual queries still have short timeouts; before the confirmation window completes, unsuccessful queries receive local SERVFAIL rather than being sent to another provider. Successful replies reset the timer. Automatic checks run only after an observed failure and only when traffic has not supplied a recent result. See [0.5.0 verification](docs/VERIFICATION-0.5.0.md).
 
 DoH3 now uses explicit provider bootstrap addresses with the original hostname retained for TLS validation and HTTP authority. It retries alternate addresses of the same provider with bounded overlap, remembers working addresses, and never downgrades HTTP version. Normal-sized DoH3 requests use the standard GET form; DNS IDs are normalized on the wire and restored for the caller. The exact legacy public Control D preset is corrected without overriding arbitrary custom bootstrap settings.
 
-0.4.0 adds **Activity → Test DNS servers / Aktivität → DNS-Server prüfen**. This sends a DNS query directly to every enabled, saved server and reports the result, latency and timestamp. It does not reorder providers, change configuration or reset routing cooldowns. Status refresh alone still only reads current state. The Activity page also shows localized errors and per-query attempt/fallback reasons. **Advanced → Fallback groups** now edits named groups and ordered server lists instead of raw IDs. See [0.4.0 verification](docs/VERIFICATION-0.4.0.md).
+The DNS test introduced in 0.4.0 is now under **DNS Servers → Test DNS servers / DNS-Server → DNS-Server prüfen**. This sends a DNS query directly to every enabled, saved server and reports the result, latency and timestamp. It does not reorder providers, change configuration or reset routing cooldowns. Status refresh alone still only reads current state. The query log shows localized per-query attempt/fallback reasons. **Advanced → Fallback groups** now edits named groups and ordered server lists instead of raw IDs. See [0.4.0 verification](docs/VERIFICATION-0.4.0.md).
 
 0.3.1 fixes server enable/disable checkboxes, dark editor frames and scrollbars, tab selection colors, protocol capitalization and generated placeholder labels. Known providers, including personal Control D profiles, now receive bootstrap addresses automatically in the service. Existing profiles and explicit custom IPs are retained. See [0.3.1 verification](docs/VERIFICATION-0.3.1.md).
 
@@ -49,11 +57,11 @@ A second included chain is `Control D → NextDNS`. Replace the included public 
 - Control D: `https://dns.controld.com/<resolver-id>`
 - NextDNS: `https://dns.nextdns.io/<profile-id>`
 
-Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible in Resolver health and cause the next resolver to be tried. Use `tools/BetterDns.Probe` to verify the current network before activating a chain.
+Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible in DNS server status; the next provider is tried only after the configured failure-confirmation window. Use `tools/BetterDns.Probe` to verify the current network before activating a chain.
 
 ## Install
 
-Download `BetterDNS-Setup-0.5.0-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
+Download `BetterDNS-Setup-0.5.1-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 

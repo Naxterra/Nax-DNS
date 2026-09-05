@@ -21,6 +21,10 @@ public partial class MainWindow : System.Windows.Window
             viewModel.HasInputErrors = inputErrors.Count > 0;
         });
         viewModel.EditProviderRequested += OnEditProvider;
+        viewModel.ConfirmServiceOperation = operation => System.Windows.MessageBox.Show(this,
+            Localization.LocalizationManager.Get("Service.Confirm." + operation), "BetterDNS",
+            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
+            System.Windows.MessageBoxResult.No) == System.Windows.MessageBoxResult.Yes;
         Loaded += OnLoaded;
         Closed += OnClosed;
         Closing += (_, args) =>

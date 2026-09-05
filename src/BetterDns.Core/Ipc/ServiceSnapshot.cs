@@ -8,6 +8,9 @@ public sealed record ServiceSnapshot(
     IReadOnlyList<UpstreamStatus> Upstreams,
     IReadOnlyList<QueryLogEntry> Queries,
     EnforcementSnapshot Enforcement,
-    IReadOnlyList<ResolverProbeResult>? ProbeResults = null);
+    IReadOnlyList<ResolverProbeResult>? ProbeResults = null,
+    LocalDnsSnapshot? LocalDns = null);
+
+public sealed record LocalDnsSnapshot(bool Ready, IReadOnlyList<string> Endpoints, string? ErrorCode = null);
 
 public sealed record EnforcementSnapshot(bool Active, string Status, string? LastError, DateTimeOffset? LastChecked, bool DriverReady);

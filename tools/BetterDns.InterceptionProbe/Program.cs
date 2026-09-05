@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using BetterDns.Core.Configuration;
@@ -23,6 +24,47 @@ if (args.Length == 2 && args[0] == "--ci-select-primary")
     };
     await control.SendAsync<BetterDnsConfiguration>("saveConfiguration", configuration);
     File.WriteAllText(args[1], JsonSerializer.Serialize(new { Selected = usable, Probes = probes }, JsonSettings.File));
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "--observe-dns")
+{
+    NativeLibrary.SetDllImportResolver(typeof(DivertService).Assembly, (name, _, _) =>
+        name.Equals("WinDivert.dll", StringComparison.OrdinalIgnoreCase)
+            ? NativeLibrary.Load(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "BetterDNS", "Service", "WinDivert-2.2.2", "runtimes", "win-x64", "native", "WinDivert.dll"))
+            : IntPtr.Zero);
+    var observations = new List<object>();
+    try
+    {
+        using var observer = new DivertService((DivertFilter)"udp and (udp.DstPort == 53 or udp.SrcPort == 53)",
+            DivertLayer.Network, (short)(DivertService.HighestPriority - 1), DivertFlags.Sniff | DivertFlags.ReceiveOnly);
+        using var observeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+        while (!observeTimeout.IsCancellationRequested)
+        {
+            var packet = new byte[65535];
+            var addresses = new DivertAddress[1];
+            try
+            {
+                var (length, count) = await observer.ReceiveAsync(packet, addresses, observeTimeout.Token);
+                if (count != 1 || !UdpPacketRewriter.TryGetDnsPayload(packet.AsSpan(0, length), out var payload)) continue;
+                var v6 = (packet[0] >> 4) == 6;
+                var source = new IPAddress(packet.AsSpan(v6 ? 8 : 12, v6 ? 16 : 4));
+                var destination = new IPAddress(packet.AsSpan(v6 ? 24 : 16, v6 ? 16 : 4));
+                var address = addresses[0];
+                string domain;
+                try { domain = DnsWire.ReadFirstQuestion(payload).Name; }
+                catch (InvalidDataException) { domain = "<invalid>"; }
+                observations.Add(new { At = DateTimeOffset.Now, Domain = domain,
+                    Source = source.ToString(), Destination = destination.ToString(),
+                    address.IsOutbound, address.IsImpostor, address.IsLoopback,
+                    Interface = address.GetNetworkData().InterfaceIndex, Response = (payload[2] & 128) != 0 });
+            }
+            catch (OperationCanceledException) when (observeTimeout.IsCancellationRequested) { break; }
+        }
+    }
+    catch (Exception error) { observations.Add(new { Error = error.ToString() }); }
+    File.WriteAllText(args[1], JsonSerializer.Serialize(observations, JsonSettings.File));
     return 0;
 }
 
@@ -102,15 +144,45 @@ try
             result["Rcode"] = DnsWire.ResponseCodeName(reply.Buffer);
         }
         catch (OperationCanceledException) { result["ReceiveTimeout"] = true; }
+        if (IPAddress.IsLoopback(targetAddress))
+        {
+            try
+            {
+                using var tcpTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                tcpTimeout.CancelAfter(TimeSpan.FromSeconds(8));
+                using var tcp = new TcpClient(targetAddress.AddressFamily);
+                await tcp.ConnectAsync(targetAddress, 53, tcpTimeout.Token);
+                var stream = tcp.GetStream();
+                var frame = new byte[query.Length + 2];
+                BinaryPrimitives.WriteUInt16BigEndian(frame, checked((ushort)query.Length));
+                query.CopyTo(frame, 2);
+                await stream.WriteAsync(frame, tcpTimeout.Token);
+                var prefix = new byte[2];
+                await stream.ReadExactlyAsync(prefix, tcpTimeout.Token);
+                var response = new byte[BinaryPrimitives.ReadUInt16BigEndian(prefix)];
+                await stream.ReadExactlyAsync(response, tcpTimeout.Token);
+                result["TcpValidReply"] = DnsWire.MatchesQuestion(query, response);
+                result["TcpRcode"] = DnsWire.ResponseCodeName(response);
+            }
+            catch (Exception error) when (error is IOException or SocketException or OperationCanceledException)
+            {
+                result["TcpError"] = error.Message;
+            }
+        }
         await Task.Delay(250, token);
         var after = await client.SendAsync<JsonElement>("getState", false, token);
         result["Enforcement"] = after.GetProperty("enforcement");
+        if (after.TryGetProperty("localDns", out var localDns)) result["LocalDns"] = localDns;
         var entries = after.GetProperty("queries").EnumerateArray()
             .Where(entry => entry.GetProperty("domain").GetString() == queryName &&
                 entry.GetProperty("timestamp").GetDateTimeOffset() >= sentAt)
             .Select(entry => entry.Clone()).ToArray();
         result["QueryLog"] = entries;
-        result["InterceptionVerified"] = result.TryGetValue("ValidReply", out var valid) && valid is true && entries.Length > 0;
+        var udpVerified = result.TryGetValue("ValidReply", out var valid) && valid is true && entries.Length > 0;
+        var localVerified = !IPAddress.IsLoopback(targetAddress) ||
+            result.TryGetValue("TcpValidReply", out var tcpValid) && tcpValid is true &&
+            after.TryGetProperty("localDns", out var listener) && listener.GetProperty("ready").GetBoolean();
+        result["InterceptionVerified"] = udpVerified && localVerified;
     }
     finally
     {

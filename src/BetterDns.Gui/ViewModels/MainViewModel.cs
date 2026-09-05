@@ -9,7 +9,7 @@ using BetterDns.Gui.Localization;
 
 namespace BetterDns.Gui.ViewModels;
 
-public sealed class MainViewModel : ObservableObject, IDisposable
+public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly IControlClient client;
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -36,9 +36,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel() : this(new ControlClient()) { }
 
-    public MainViewModel(IControlClient client)
+    public MainViewModel(IControlClient client, Services.IWindowsServiceManager? serviceManager = null)
     {
         this.client = client;
+        InitializeServiceManager(serviceManager ?? new Services.WindowsServiceManager());
         ToggleProtectionCommand = new AsyncCommand(ToggleProtectionAsync, () => IsConnected && !IsBusy);
         RefreshCommand = new AsyncCommand(RefreshAsync, () => !IsBusy);
         SaveCommand = new AsyncCommand(SaveAsync, () => IsConnected && !IsBusy);
@@ -134,6 +135,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string EnforcementText => lastSnapshot is null ? L("Status.DriverStarting") :
         lastSnapshot.Enforcement.LastError ?? L(lastSnapshot.Enforcement.DriverReady
             ? (protectionConfirmed ? "Setup.DriverActive" : "Setup.DriverReady") : "Status.DriverUnavailable");
+    public string LocalDnsStatusText => !IsConnected ? L("LocalDns.Unavailable") : lastSnapshot?.LocalDns is not { } local
+        ? L("LocalDns.Legacy") : local.Ready
+        ? L(IsActive ? "LocalDns.Ready" : "LocalDns.Off", string.Join(", ", local.Endpoints))
+        : L(local.ErrorCode == "port-unavailable" ? "LocalDns.PortConflict" : "LocalDns.Unavailable");
     public string RouteSummary => string.Join("  →  ", OrderedProviders().Select(provider => provider.DisplayName + (provider.Enabled ? "" : " · " + L("Health.Disabled"))));
     public string ExtraFallbackSummary => L("Setup.ExtraCount", AdditionalFallbacks.Count);
     public string ConfiguredRouteText => HasUnsavedChanges ? L("Setup.NotApplied") : L(IsActive ? "Setup.Applied" : "Setup.SavedOff");
@@ -192,10 +197,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SelectedLanguage
     {
         get => selectedLanguage;
-        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); loading = true; try { foreach (var provider in Upstreams) provider.RefreshDisplayName(); foreach (var chain in Chains) chain.RefreshDisplayName(); } finally { loading = false; } Raise(nameof(MatchOptions)); Raise(nameof(ActionOptions)); UpdatePresentation(); } }
+        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); loading = true; try { foreach (var provider in Upstreams) provider.RefreshDisplayName(); foreach (var chain in Chains) chain.RefreshDisplayName(); } finally { loading = false; } Raise(nameof(MatchOptions)); Raise(nameof(ActionOptions)); RaiseServicePresentation(); UpdatePresentation(); } }
     }
 
-    public async Task InitializeAsync() { await RefreshAsync(); timer.Start(); }
+    public async Task InitializeAsync() { RefreshServiceState(); await RefreshAsync(); timer.Start(); }
     public void Dispose() { timer.Stop(); foreach (var editor in trackedEditors) editor.PropertyChanged -= EditorChanged; }
     private async void OnTimerTick(object? sender, EventArgs e) => await RefreshAsync();
 
@@ -217,7 +222,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             lastSnapshot = snapshot;
             IsConnected = true;
             IsActive = snapshot.Configuration.Active;
-            protectionConfirmed = IsActive && snapshot.Enforcement.Active && snapshot.Enforcement.DriverReady && snapshot.Enforcement.LastError is null;
+            protectionConfirmed = IsActive && snapshot.Enforcement.Active && snapshot.Enforcement.DriverReady && snapshot.Enforcement.LastError is null && snapshot.LocalDns is not { Ready: false };
             loaded = true;
             UpdatePresentation();
         }
@@ -228,9 +233,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             StatusMessage = L("Status.ServiceUnavailable", DnsText.Failure(ResolverFailure.Classify(error)));
             technicalError = error.Message; Raise(nameof(StatusDetails));
             UpdateLiveRoute();
-            Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText));
+            Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText)); Raise(nameof(LocalDnsStatusText));
         }
-        finally { refreshing = false; stateGate.Release(); }
+        finally { refreshing = false; stateGate.Release(); RefreshServiceState(); }
     }
 
     public Task SaveAsync() => RunActionAsync(async () => { await PersistAsync(); noticeKey = "Status.Saved"; });
@@ -276,7 +281,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             technicalError = error.Message;
             actionError = error.Data["ErrorCode"] is string code
-                ? L(code == "probe-busy" ? "Probe.Busy" : code == "configuration-invalid" ? "Control.InvalidConfiguration" : "Control.Rejected")
+                ? L(code == "probe-busy" ? "Probe.Busy" : code == "local-dns-unavailable" ? "LocalDns.Unavailable" : code == "configuration-invalid" ? "Control.InvalidConfiguration" : "Control.Rejected")
                 : error is System.IO.IOException or OperationCanceledException ? DnsText.Failure(ResolverFailure.Classify(error)) : error.Message;
         }
         finally { stateGate.Release(); IsBusy = false; }
@@ -451,7 +456,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public static string ProtocolName(DnsProtocol protocol) => protocol switch
     { DnsProtocol.Doh3 => "DoH3", DnsProtocol.Doh => "DoH", DnsProtocol.Dot => "DoT", DnsProtocol.Doq => "DoQ", _ => protocol.ToString() };
     private void SetError(string key) { actionError = L(key); StatusMessage = actionError; }
-    private void NotifyCommands() { ToggleProtectionCommand?.RaiseCanExecuteChanged(); SaveCommand?.RaiseCanExecuteChanged(); RefreshCommand?.RaiseCanExecuteChanged(); TestServersCommand?.RaiseCanExecuteChanged(); }
+    private void NotifyCommands() { ToggleProtectionCommand?.RaiseCanExecuteChanged(); SaveCommand?.RaiseCanExecuteChanged(); RefreshCommand?.RaiseCanExecuteChanged(); TestServersCommand?.RaiseCanExecuteChanged(); RaiseServicePresentation(); }
 
     private void ReloadChainServers()
     {
@@ -518,7 +523,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     DnsText.Response(query.Result), DescribeAttempts(query.Attempts, snapshot.Configuration)));
         }
         SelectedQuery = Queries.FirstOrDefault(query => query.TimeText == previousQuery?.TimeText && query.Domain == previousQuery.Domain) ?? Queries.FirstOrDefault();
-        Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); Raise(nameof(EnforcementText));
+        Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); Raise(nameof(EnforcementText)); Raise(nameof(LocalDnsStatusText));
         NotifyRoute(); UpdateLiveRoute();
     }
 
