@@ -117,6 +117,7 @@ public sealed class LoopbackDnsServer(
                 pending.Add(AnswerTcpAsync(client, queries, clients, token));
             }
         }
+        catch (InvalidOperationException) when (token.IsCancellationRequested) { }
         finally { await Task.WhenAll(pending).ConfigureAwait(false); }
     }
 
