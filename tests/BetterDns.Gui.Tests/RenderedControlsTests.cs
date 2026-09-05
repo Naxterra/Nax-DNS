@@ -53,7 +53,8 @@ public sealed class RenderedControlsTests
                 LocalizationManager.Apply(language, persist: false);
                 using var model = new MainViewModel(new RenderClient(), new FakeServiceManager());
                 model.RefreshAsync().GetAwaiter().GetResult();
-                var window = new MainWindow(model);
+                var tray = new FakeTrayIcon();
+                var window = new MainWindow(model, tray);
                 var content = (FrameworkElement)window.Content;
                 Layout(content, 1244, 860);
                 var primary = Descendants<ComboBox>(content).Single(combo => ReferenceEquals(combo.SelectedItem, model.PrimaryProvider));
@@ -182,7 +183,26 @@ public sealed class RenderedControlsTests
                 var dark = 0;
                 if (DwmGetWindowAttribute(handle, 20, ref dark, sizeof(int)) == 0) Assert.Equal(1, dark);
                 dialog.Close();
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Left = -20000;
+                window.Top = -20000;
+                window.ShowActivated = false;
+                window.Show();
+                window.WindowState = WindowState.Minimized;
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                Assert.False(window.ShowInTaskbar);
+                Assert.True(tray.Visible);
+                window.Close(); // Title-bar close hides; it does not dispose the app.
+                Assert.False(tray.Disposed);
+                tray.RaiseOpen();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                Assert.True(window.ShowInTaskbar);
+                Assert.Equal(WindowState.Normal, window.WindowState);
                 window.Close();
+                Assert.False(tray.Disposed);
+                tray.RaiseExit();
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+                Assert.True(tray.Disposed);
             }
         }
         finally { app.Shutdown(); }
@@ -252,5 +272,16 @@ public sealed class RenderedControlsTests
             }
             throw new InvalidOperationException("Off-screen rendering never enables real DNS.");
         }
+    }
+
+    private sealed class FakeTrayIcon : BetterDns.Gui.Services.ISystemTrayIcon
+    {
+        public event EventHandler? OpenRequested;
+        public event EventHandler? ExitRequested;
+        public bool Visible { get; set; }
+        public bool Disposed { get; private set; }
+        public void RaiseOpen() => OpenRequested?.Invoke(this, EventArgs.Empty);
+        public void RaiseExit() => ExitRequested?.Invoke(this, EventArgs.Empty);
+        public void Dispose() => Disposed = true;
     }
 }

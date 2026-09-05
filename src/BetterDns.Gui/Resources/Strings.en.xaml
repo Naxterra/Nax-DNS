@@ -249,4 +249,6 @@
     <sys:String x:Key="LocalDns.Unavailable">Local DNS listener is not ready. Check the service and port 53.</sys:String>
     <sys:String x:Key="LocalDns.PortConflict">Local DNS port 53 is unavailable. Another DNS program may be using it; no program has been stopped.</sys:String>
     <sys:String x:Key="LocalDns.Legacy">This service version has no local DNS listener. Install the latest BetterDNS update.</sys:String>
+    <sys:String x:Key="Tray.Open">Open BetterDNS</sys:String>
+    <sys:String x:Key="Tray.Exit">Exit BetterDNS</sys:String>
 </ResourceDictionary>

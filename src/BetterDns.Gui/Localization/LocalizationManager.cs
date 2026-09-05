@@ -30,7 +30,7 @@ public static class LocalizationManager
     public static void Apply(string language, bool persist = true)
     {
         var normalized = language.Equals(German, StringComparison.OrdinalIgnoreCase) ? German : English;
-        var dictionaries = Application.Current.Resources.MergedDictionaries;
+        var dictionaries = System.Windows.Application.Current.Resources.MergedDictionaries;
         var existing = dictionaries.FirstOrDefault(dictionary =>
             dictionary.Source?.OriginalString.Contains("Strings.", StringComparison.OrdinalIgnoreCase) == true);
         if (existing is not null)
@@ -54,7 +54,7 @@ public static class LocalizationManager
 
     public static string Get(string key, params object?[] arguments)
     {
-        var template = Application.Current?.TryFindResource(key) as string ?? key;
+        var template = System.Windows.Application.Current?.TryFindResource(key) as string ?? key;
         return arguments.Length == 0
             ? template
             : string.Format(CultureInfo.CurrentUICulture, template, arguments);

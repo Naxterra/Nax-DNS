@@ -4,6 +4,8 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.5.2 keeps BetterDNS running in the Windows notification area. Minimizing the window or pressing its title-bar close button hides the GUI without stopping DNS routing or losing unsaved edits. Left-click the tray icon to reopen BetterDNS, or use its localized menu to open or fully exit. Full exit still protects an unsaved draft with a confirmation.
+
 0.5.1 adds a real DNS listener on **127.0.0.1 and ::1, UDP and TCP port 53**, so VPN clients such as Windscribe can use BetterDNS as a local DNS server. Localhost traffic uses the listener; the WinDivert kernel path continues to intercept other outbound UDP/53 queries. Both paths use the same encrypted router, rules, failover state and query log. The listener never binds a LAN or wildcard address, refuses queries while routing is off, and reports a port conflict without stopping another DNS program.
 
 For Windscribe, set Connected DNS to 127.0.0.1. Strict DoH3 also requires **Unlock Streaming to be disabled in the Windscribe account**: Windscribe documents that this account feature prevents HTTP/3 from working through the VPN. BetterDNS deliberately does not downgrade DoH3 to DoH. See [Windscribe's known issue](https://github.com/Windscribe/Desktop-App/wiki/Known-Issues#http3-not-working) and [0.5.1 verification](docs/VERIFICATION-0.5.1.md).
