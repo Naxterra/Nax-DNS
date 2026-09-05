@@ -26,23 +26,38 @@ public sealed class LoopbackDnsServer(
         var loops = new List<Task>();
         try
         {
-            Port = port;
-            foreach (var address in enableIpv6 && Socket.OSSupportsIPv6
-                ? new[] { IPAddress.Loopback, IPAddress.IPv6Loopback } : [IPAddress.Loopback])
+            var addresses = enableIpv6 && Socket.OSSupportsIPv6
+                ? new[] { IPAddress.Loopback, IPAddress.IPv6Loopback } : [IPAddress.Loopback];
+            var bindAttempts = port == 0 ? 32 : 1;
+            for (var attempt = 0; attempt < bindAttempts; attempt++)
             {
-                var tcp = new TcpListener(address, Port);
-                tcpSockets.Add(tcp);
-                tcp.Server.ExclusiveAddressUse = true;
-                if (address.AddressFamily == AddressFamily.InterNetworkV6) tcp.Server.DualMode = false;
-                tcp.Start(64);
-                Port = ((IPEndPoint)tcp.LocalEndpoint).Port;
-                var udp = new UdpClient(address.AddressFamily);
-                udpSockets.Add(udp);
-                udp.ExclusiveAddressUse = true;
-                if (address.AddressFamily == AddressFamily.InterNetworkV6) udp.Client.DualMode = false;
-                udp.Client.Bind(new IPEndPoint(address, Port));
-                // ICMP errors from a closed client socket must not terminate the UDP listener.
-                if (OperatingSystem.IsWindows()) udp.Client.IOControl((IOControlCode)(-1744830452), new byte[4], null);
+                Port = port == 0 ? Random.Shared.Next(10_000, 60_000) : port;
+                try
+                {
+                    foreach (var address in addresses)
+                    {
+                        var tcp = new TcpListener(address, Port);
+                        tcpSockets.Add(tcp);
+                        tcp.Server.ExclusiveAddressUse = true;
+                        if (address.AddressFamily == AddressFamily.InterNetworkV6) tcp.Server.DualMode = false;
+                        tcp.Start(64);
+                        var udp = new UdpClient(address.AddressFamily);
+                        udpSockets.Add(udp);
+                        udp.ExclusiveAddressUse = true;
+                        if (address.AddressFamily == AddressFamily.InterNetworkV6) udp.Client.DualMode = false;
+                        udp.Client.Bind(new IPEndPoint(address, Port));
+                        // ICMP errors from a closed client socket must not terminate the UDP listener.
+                        if (OperatingSystem.IsWindows()) udp.Client.IOControl((IOControlCode)(-1744830452), new byte[4], null);
+                    }
+                    break;
+                }
+                catch (SocketException) when (port == 0 && attempt + 1 < bindAttempts)
+                {
+                    foreach (var socket in udpSockets) socket.Dispose();
+                    foreach (var socket in tcpSockets) socket.Stop();
+                    udpSockets.Clear();
+                    tcpSockets.Clear();
+                }
             }
             // Publish readiness only after all bindings succeeded (no partial listener).
             ready(tcpSockets.Select(socket => socket.LocalEndpoint.ToString()!).ToArray());
