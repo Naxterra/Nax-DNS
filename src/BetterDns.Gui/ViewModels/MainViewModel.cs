@@ -561,6 +561,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     var displayName = ProviderNames.Display(last.UpstreamName ?? "", configuration.Upstreams.FirstOrDefault(provider => provider.Id == last.UpstreamId)?.Endpoint ?? "");
                     LiveResolverText = $"{displayName} · {(last.Protocol is { } protocol ? ProtocolName(protocol) : "—")}";
                     LiveRouteDetail = L(LastResponseUsedBackup ? "Setup.BackupUsed" : "Setup.PrimaryUsed", last.Timestamp.ToLocalTime().ToString("HH:mm:ss"), $"{last.ElapsedMilliseconds:0}");
+                    LiveRouteDetail += " · " + DnsText.Response(last.Result);
                     if (LastResponseUsedBackup) LiveRouteDetail += Environment.NewLine + DescribeAttempts(last.Attempts?.Where(attempt => attempt.FailureCode is not null).ToArray(), configuration);
                 }
             }
