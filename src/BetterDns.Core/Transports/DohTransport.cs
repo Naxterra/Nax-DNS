@@ -39,7 +39,7 @@ public sealed class DohTransport : IDnsTransport, IDisposable
         preferredAddresses.TryGetValue(key, out var preferred);
         var addresses = configured.Distinct().OrderBy(address => address.Equals(preferred) ? 0 :
             address.AddressFamily == AddressFamily.InterNetwork ? 1 : 2).Take(8).ToArray();
-        var perAddress = TimeSpan.FromMilliseconds(Math.Clamp(upstream.TimeoutMilliseconds / 2.0, 100, 1500));
+        var perAddress = TimeSpan.FromMilliseconds(addresses.Length <= 2 ? Math.Clamp(upstream.TimeoutMilliseconds, 250, 30000) : Math.Clamp(upstream.TimeoutMilliseconds / 2.0, 100, 2000));
         var stagger = TimeSpan.FromMilliseconds(Math.Min(250, perAddress.TotalMilliseconds / 2));
         using var attemptsCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var pending = new List<Task<(byte[] Answer, IPAddress Address)>>();

@@ -23,3 +23,5 @@ Automatic same-provider checks fill observation gaps only after a failure. Succe
 ## Automated coverage
 
 94 local tests passed before packaging. Coverage includes strict HTTP/3 request policy and response-version rejection, preserved Host/profile identity, normalized/restored transaction IDs, alternate-address retries and cancellation, retained DNS refusals, legacy-preset correction, five-minute simulated-time gating, timer reset on success, no fallback before confirmation, observation gaps, shared-group policy protection, and no automatic DNS traffic for healthy or inactive configurations. Existing WPF, control-pipe and installer tests remain in place.
+
+The first CI activation attempt could not obtain a successful preflight answer from its default primary. Installer service/driver readiness had passed. The disposable CI fixture now probes its strict-DoH3 defaults and selects a responding provider before the kernel loopback test. This changes only the test machine's route; production defaults and five-minute confirmation are not bypassed. The measured selection is included in installer-test-logs.

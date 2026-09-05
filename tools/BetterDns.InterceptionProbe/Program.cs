@@ -7,6 +7,25 @@ using BetterDns.Core.Dns;
 using BetterDns.Core.Ipc;
 using Divert.Windows;
 
+if (args.Length == 2 && args[0] == "--ci-select-primary")
+{
+    if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true") return 2;
+    var control = new ControlClient();
+    var state = await control.SendAsync<ServiceSnapshot>("getState", false);
+    var probes = await control.SendAsync<IReadOnlyList<ResolverProbeResult>>("testUpstreams", false);
+    var chain = state.Configuration.Chains.Single(value => value.Id == state.Configuration.DefaultChainId);
+    var usable = chain.UpstreamIds.FirstOrDefault(id => probes.Any(probe => probe.UpstreamId == id && probe.FailureCode is null && probe.DnsResponse is "NOERROR" or "NXDOMAIN"));
+    if (usable is null) throw new InvalidOperationException("No strict-DoH3 resolver answered on the CI network.");
+    var configuration = state.Configuration with
+    {
+        Chains = state.Configuration.Chains.Select(value => value.Id == chain.Id
+            ? value with { UpstreamIds = new[] { usable }.Concat(value.UpstreamIds.Where(id => id != usable)).ToArray() } : value).ToArray()
+    };
+    await control.SendAsync<BetterDnsConfiguration>("saveConfiguration", configuration);
+    File.WriteAllText(args[1], JsonSerializer.Serialize(new { Selected = usable, Probes = probes }, JsonSettings.File));
+    return 0;
+}
+
 if (args.Length is < 2 or > 3 || !IPAddress.TryParse(args[0], out var targetAddress))
 {
     Console.Error.WriteLine("Usage (elevated): BetterDns.InterceptionProbe <DNS target IP> <result.json> [query name]");

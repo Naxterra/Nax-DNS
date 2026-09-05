@@ -20,6 +20,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "$phase service health failed." }
         if ($phase -eq 'fresh') {
             $probe = Join-Path $repo 'tools\BetterDns.InterceptionProbe\bin\Release\net11.0-windows\win-x64\BetterDns.InterceptionProbe.exe'
+            # CI has no user's provider preference. Select a measured, responding strict-DoH3
+            # endpoint before testing kernel interception; production defaults are untouched.
+            & $probe --ci-select-primary (Join-Path $logs 'ci-primary-selection.json')
+            if ($LASTEXITCODE -ne 0) { throw 'No usable strict-DoH3 primary on this CI network.' }
             # The resolver hostname is answered from configured bootstrap IPs, avoiding
             # dependence on external UDP/443 availability on hosted CI machines.
             & $probe 127.0.0.1 (Join-Path $logs 'loopback-interception.json') root.hagezi.org
