@@ -9,6 +9,74 @@ namespace BetterDns.Gui.Tests;
 public sealed class SetupWorkflowTests
 {
     [Fact]
+    public async Task Pending_status_refresh_cannot_overwrite_a_new_save()
+    {
+        var client = new FakeClient(); using var vm = new MainViewModel(client);
+        await vm.RefreshAsync();
+        var blocker = new TaskCompletionSource<ServiceSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.BlockNextRead = blocker.Task;
+        var oldSnapshot = client.Snapshot();
+        var refresh = vm.RefreshAsync();
+        vm.PrimaryProvider = vm.Upstreams.Single(server => server.Id == "google-public");
+        var save = vm.SaveAsync();
+        Assert.Empty(client.Writes);
+        blocker.SetResult(oldSnapshot);
+        await Task.WhenAll(refresh, save);
+        Assert.Equal("google-public", vm.PrimaryProvider!.Id);
+        Assert.Equal("google-public", client.Config.Chains[0].UpstreamIds[0]);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Latency_test_calls_probe_API_without_saving_or_activating()
+    {
+        var client = new FakeClient(); using var vm = new MainViewModel(client);
+        await vm.RefreshAsync(); await vm.TestServersAsync();
+        Assert.Equal(["testUpstreams"], client.Writes);
+        Assert.False(client.Config.Active);
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task Latency_test_does_not_silently_apply_a_draft()
+    {
+        var client = new FakeClient(); using var vm = new MainViewModel(client);
+        await vm.RefreshAsync(); vm.Upstreams[0].Name = "Draft"; await vm.TestServersAsync();
+        Assert.Empty(client.Writes);
+        Assert.Equal(LocalizationManager.Get("Probe.SaveFirst"), vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task Saved_active_route_has_unambiguous_saved_text()
+    {
+        var client = new FakeClient { Config = DefaultConfiguration.Create() with { Active = true } };
+        using var vm = new MainViewModel(client); await vm.RefreshAsync(); await vm.SaveAsync();
+        Assert.False(vm.HasUnsavedChanges);
+        Assert.Equal(LocalizationManager.Get("Setup.Applied"), vm.ConfiguredRouteText);
+    }
+
+    [Fact]
+    public async Task Named_group_editor_reorders_servers_and_preserves_other_groups()
+    {
+        var client = new FakeClient(); using var vm = new MainViewModel(client); await vm.RefreshAsync();
+        vm.SelectedChain = vm.Chains[0]; var other = vm.Chains[1].UpstreamIds;
+        vm.SelectedChainServer = vm.SelectedChainServers[1]; vm.MoveChainServerUpCommand.Execute(null);
+        Assert.Equal("cloudflare-security", vm.SelectedChainServers[0].Id);
+        Assert.Equal("cloudflare-security", vm.PrimaryProvider!.Id);
+        Assert.Equal(other, vm.Chains[1].UpstreamIds);
+        await vm.SaveAsync(); Assert.Equal("cloudflare-security", client.Config.Chains[0].UpstreamIds[0]);
+    }
+
+    [Fact]
+    public async Task Validation_errors_block_save_but_do_not_block_turning_off()
+    {
+        var client = new FakeClient { Config = DefaultConfiguration.Create() with { Active = true } };
+        using var vm = new MainViewModel(client); await vm.RefreshAsync(); vm.HasInputErrors = true;
+        await vm.SaveAsync(); Assert.Empty(client.Writes);
+        await vm.ToggleProtectionAsync(); Assert.Equal(["setActive"], client.Writes);
+    }
+
+    [Fact]
     public async Task Disabled_primary_can_be_saved_and_reenabled_without_losing_its_position()
     {
         var client = new FakeClient { Config = DefaultConfiguration.Create() with { Active = true } };
@@ -235,12 +303,19 @@ public sealed class SetupWorkflowTests
         public bool FailSave { get; init; }
         public bool FailActivation { get; init; }
         public IReadOnlyList<QueryLogEntry> Queries { get; set; } = [];
+        public Task<ServiceSnapshot>? BlockNextRead { get; set; }
+        public ServiceSnapshot Snapshot() => new("test", Config,
+            Config.Upstreams.Select(provider => new UpstreamStatus(provider.Id, provider.Name, true, 0, null, null, null)).ToArray(), Queries,
+            new(Config.Active, "ready", null, DateTimeOffset.UtcNow, true));
         public Task<T> SendAsync<T>(string command, object? payload, CancellationToken cancellationToken = default)
         {
-            if (command == "getState") return Task.FromResult((T)(object)new ServiceSnapshot("test", Config,
-                Config.Upstreams.Select(provider => new UpstreamStatus(provider.Id, provider.Name, true, 0, null, null, null)).ToArray(), Queries,
-                new(Config.Active, "ready", null, DateTimeOffset.UtcNow, true)));
+            if (command == "getState")
+            {
+                if (BlockNextRead is { } blocked) { BlockNextRead = null; return ConvertTask<T>(blocked); }
+                return Task.FromResult((T)(object)Snapshot());
+            }
             Writes.Add(command);
+            if (command == "testUpstreams") return Task.FromResult((T)(object)Array.Empty<ResolverProbeResult>());
             if (command == "saveConfiguration")
             {
                 if (FailSave) throw new InvalidOperationException("save failed");
@@ -254,5 +329,6 @@ public sealed class SetupWorkflowTests
             else throw new InvalidOperationException(command);
             return Task.FromResult((T)(object)Config);
         }
+        private static async Task<T> ConvertTask<T>(Task<ServiceSnapshot> task) => (T)(object)await task;
     }
 }

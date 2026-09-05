@@ -1,6 +1,8 @@
 using BetterDns.Core.Configuration;
 using BetterDns.Core.Ipc;
 using BetterDns.Core.Routing;
+using BetterDns.Core.Transports;
+using BetterDns.Core.Dns;
 using BetterDns.Service.Configuration;
 using BetterDns.Service.Ipc;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +13,42 @@ namespace BetterDns.Service.Tests;
 
 public sealed class ServiceIntegrationTests
 {
+    [Fact]
+    public async Task Latency_endpoint_probes_saved_servers_without_configuration_or_routing_changes()
+    {
+        var directory = Directory.CreateTempSubdirectory("BetterDns-probe-test-").FullName;
+        var pipe = "BetterDns-probe-test-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            var builder = Host.CreateApplicationBuilder();
+            builder.Services.AddBetterDns(directory, pipe, diagnostic: true);
+            builder.Services.AddSingleton(service => new DnsRouter(service.GetRequiredService<UpstreamHealthTracker>(), service.GetRequiredService<QueryLog>(), [new ProbeTransport()]));
+            using var host = builder.Build();
+            await host.StartAsync();
+            var client = new ControlClient(pipe);
+            var before = File.ReadAllText(Path.Combine(directory, "config.json"));
+            var results = await client.SendAsync<IReadOnlyList<ResolverProbeResult>>("testUpstreams", false);
+            Assert.Equal(6, results.Count);
+            Assert.Equal(5, results.Count(result => result.LatencyMilliseconds is not null));
+            Assert.Equal("profile-required", results.Single(result => result.UpstreamId == "nextdns").FailureCode);
+            var state = await client.SendAsync<ServiceSnapshot>("getState", false);
+            Assert.Equal(6, state.ProbeResults!.Count);
+            Assert.Empty(state.Queries);
+            Assert.All(state.Upstreams, status => Assert.Null(status.LastChecked));
+            Assert.Equal(before, File.ReadAllText(Path.Combine(directory, "config.json")));
+            Assert.False(state.Configuration.Active);
+            await host.StopAsync();
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private sealed class ProbeTransport : IDnsTransport
+    {
+        public DnsProtocol Protocol => DnsProtocol.Doh3;
+        public Task<byte[]> QueryAsync(UpstreamDefinition upstream, ReadOnlyMemory<byte> query, CancellationToken cancellationToken)
+            => Task.FromResult(DnsWire.CreateErrorResponse(query.Span, 0));
+    }
+
     [Fact]
     public async Task Fresh_service_starts_serves_GUI_saves_config_and_restarts()
     {

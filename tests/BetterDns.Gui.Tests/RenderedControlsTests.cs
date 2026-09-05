@@ -11,6 +11,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Data;
 using System.Xml.Linq;
 using BetterDns.Core.Configuration;
 using BetterDns.Core.Ipc;
@@ -110,6 +111,44 @@ public sealed class RenderedControlsTests
                 var selectedTabs = Descendants<TabItem>(content).Where(tab => tab.IsSelected).ToArray();
                 Assert.All(selectedTabs, tab => Assert.Equal("#FF43E6C3", tab.Foreground.ToString()));
                 Render(content, "advanced-" + language);
+                var innerTabs = Descendants<TabControl>(content).Last();
+                innerTabs.SelectedIndex = 1;
+                Layout(content, 1244, 860);
+                var groupText = Descendants<TextBlock>(content).Select(text => text.Text).ToArray();
+                Assert.Contains(LocalizationManager.Get("Chain.DefaultName"), groupText);
+                Assert.DoesNotContain(groupText, text => text == "privacy-default" || text == "Privacy defaults" || text.Contains("hagezi-root,", StringComparison.Ordinal));
+                Assert.Contains(LocalizationManager.Get("Chain.FailureThreshold"), groupText);
+                Render(content, "groups-" + language);
+                var thresholdInput = Descendants<TextBox>(content).Single(box => BindingOperations.GetBinding(box, TextBox.TextProperty)?.Path.Path == "SelectedChain.FailureThreshold");
+                thresholdInput.SetCurrentValue(TextBox.TextProperty, "not-a-number");
+                thresholdInput.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+                Layout(content, 1244, 860);
+                Assert.True(model.HasInputErrors);
+                thresholdInput.SetCurrentValue(TextBox.TextProperty, "2");
+                thresholdInput.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+                Layout(content, 1244, 860);
+                Assert.False(model.HasInputErrors);
+                innerTabs.SelectedIndex = 0;
+                model.AddRuleCommand.Execute(null);
+                Layout(content, 1244, 860);
+                var rulesText = Descendants<TextBlock>(content).Select(text => text.Text).ToArray();
+                Assert.Contains(LocalizationManager.Get("Match.Suffix"), rulesText);
+                Assert.Contains(LocalizationManager.Get("RuleAction.Route"), rulesText);
+                Assert.DoesNotContain("Privacy defaults", rulesText);
+                Render(content, "rules-" + language);
+                model.SaveAsync().GetAwaiter().GetResult();
+
+                model.SelectedTabIndex = 2;
+                Layout(content, 1244, 860);
+                var testButton = Descendants<Button>(content).Single(button => button.Command == model.TestServersCommand);
+                Assert.True(testButton.Command!.CanExecute(null));
+                testButton.Command.Execute(null);
+                Layout(content, 1244, 860);
+                var statusText = Descendants<TextBlock>(content).Select(text => text.Text).ToArray();
+                Assert.Contains(LocalizationManager.Get("Error.Timeout"), statusText);
+                Assert.DoesNotContain(statusText, text => text.Contains("The operation was", StringComparison.Ordinal));
+                Assert.Contains(LocalizationManager.Get("Probe.Manual"), statusText);
+                Render(content, "activity-" + language);
 
                 var dialog = new ProviderEditorWindow();
                 Assert.IsType<LinearGradientBrush>(dialog.Background);
@@ -177,10 +216,21 @@ public sealed class RenderedControlsTests
     private sealed class RenderClient : IControlClient
     {
         private BetterDnsConfiguration configuration = DefaultConfiguration.Create();
+        private IReadOnlyList<ResolverProbeResult> results = [];
         public Task<T> SendAsync<T>(string command, object? payload, CancellationToken cancellationToken = default)
         {
-            if (command == "getState") return Task.FromResult((T)(object)new ServiceSnapshot("render test", configuration, [], [], new(false, "ready", null, null, true)));
+            if (command == "getState") return Task.FromResult((T)(object)new ServiceSnapshot("render test", configuration,
+                configuration.Upstreams.Select(server => new UpstreamStatus(server.Id, server.Name, true, 0, null, null, null)).ToArray(),
+                [new(DateTimeOffset.UtcNow, "example.com", null, "Cloudflare Public DNS", "NOERROR", 271, "cloudflare-security", "privacy-default", DnsProtocol.Doh3,
+                    [new("hagezi-root", "HaGeZi Full Protection (Germany)", DnsProtocol.Doh3, DateTimeOffset.UtcNow, 250, "timeout", null),
+                     new("cloudflare-security", "Cloudflare Public DNS", DnsProtocol.Doh3, DateTimeOffset.UtcNow, 21, null, "NOERROR")])],
+                new(false, "ready", null, null, true), results));
             if (command == "saveConfiguration") { configuration = (BetterDnsConfiguration)payload!; return Task.FromResult((T)(object)configuration); }
+            if (command == "testUpstreams")
+            {
+                results = configuration.Upstreams.Select((server, index) => new ResolverProbeResult(server.Id, server.Name, server.Protocol, DateTimeOffset.UtcNow, index == 2 ? null : 21 + index, index == 2 ? "timeout" : null, index == 2 ? null : "NOERROR")).ToArray();
+                return Task.FromResult((T)(object)results);
+            }
             throw new InvalidOperationException("Off-screen rendering never enables real DNS.");
         }
     }

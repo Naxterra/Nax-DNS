@@ -106,7 +106,11 @@ public sealed record UpstreamStatus(
     int ConsecutiveFailures,
     DateTimeOffset? CircuitOpenUntil,
     double? LastLatencyMilliseconds,
-    string? LastError);
+    string? LastError,
+    DateTimeOffset? LastChecked = null,
+    string? FailureCode = null,
+    bool RecoveryInProgress = false,
+    string? LastDnsResponse = null);
 
 public sealed record QueryLogEntry(
     DateTimeOffset Timestamp,
@@ -117,4 +121,11 @@ public sealed record QueryLogEntry(
     double ElapsedMilliseconds,
     string? UpstreamId = null,
     string? ChainId = null,
-    DnsProtocol? Protocol = null);
+    DnsProtocol? Protocol = null,
+    IReadOnlyList<ResolverAttempt>? Attempts = null);
+
+public sealed record ResolverAttempt(string UpstreamId, string UpstreamName, DnsProtocol Protocol,
+    DateTimeOffset Timestamp, double? ElapsedMilliseconds, string? FailureCode, string? DnsResponse);
+
+public sealed record ResolverProbeResult(string UpstreamId, string UpstreamName, DnsProtocol Protocol,
+    DateTimeOffset CheckedAt, double? LatencyMilliseconds, string? FailureCode, string? DnsResponse);

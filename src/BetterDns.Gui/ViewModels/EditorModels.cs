@@ -61,7 +61,10 @@ public sealed class ChainEditor : ObservableObject
     private string id = "new-chain";
     public string Id { get => id; set => Set(ref id, value); }
     private string name = "New failover chain";
-    public string Name { get => name; set => Set(ref name, value); }
+    public string Name { get => name; set { if (Set(ref name, value)) { Raise(nameof(DisplayName)); Raise(nameof(EditableName)); } } }
+    public string DisplayName => Name is "Privacy defaults" or "Default DNS" ? Localization.LocalizationManager.Get("Chain.DefaultName") : Name;
+    public string EditableName { get => DisplayName; set => Name = value; }
+    public void RefreshDisplayName() { Raise(nameof(DisplayName)); Raise(nameof(EditableName)); }
     private string upstreamIds = string.Empty;
     public string UpstreamIds { get => upstreamIds; set => Set(ref upstreamIds, value); }
     private int failureThreshold = 2;
@@ -128,5 +131,7 @@ public sealed class RuleEditor : ObservableObject
     };
 }
 
-public sealed record UpstreamStatusView(string Name, string StateText, string LatencyText, string? LastError);
-public sealed record QueryView(string TimeText, string Domain, string? UpstreamName, string Result);
+public sealed record UpstreamStatusView(string Name, string StateText, string LatencyText, string? LastError,
+    string Protocol = "", string CheckedText = "—", string SourceText = "");
+public sealed record QueryView(string TimeText, string Domain, string? UpstreamName, string Result, string Details = "");
+public sealed record SelectionOption<T>(T Value, string DisplayName);

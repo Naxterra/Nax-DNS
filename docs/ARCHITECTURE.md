@@ -24,9 +24,11 @@ Checksum-valid spoofed reply injected into the inbound Windows stack
 
 ## Failover
 
-Each query selects the first matching rule, then its chain (or the default chain). Upstreams are tried in configured order. A successful DNS response, including `NXDOMAIN`, closes the circuit. Transport errors, malformed responses, `SERVFAIL`, and `REFUSED` increment the failure count. Reaching the threshold opens that resolver's circuit for the configured cooldown.
+Each query selects the first matching rule, then its chain (or the default chain). Upstreams are tried in configured order. Valid DNS replies, including `NXDOMAIN`, `REFUSED` and `SERVFAIL`, are passed through without provider fallback. Connection failures and invalid/mismatched messages count toward the cooldown threshold. Attempts carry circuit-generation leases: completions from older generations cannot clear or extend an opened circuit. After expiry, exactly one request can try recovery while other requests continue to fallback. A canceled local request does not mark the provider down.
 
-If every circuit is open, the first resolver is probed once so a chain can recover without a background plaintext health dependency. When every upstream fails, the client gets local `SERVFAIL`; there is no OS or plaintext leak fallback.
+If every circuit is open, requests receive local `SERVFAIL` until a recovery attempt becomes eligible. The router does not bypass cooldowns by hammering the first provider. Each query retains typed attempt outcomes (server, protocol, duration, failure category or DNS result), including cooldown skips, for GUI diagnosis. There is no OS or plaintext leak fallback.
+
+Manual DNS probes use the same encrypted transport directly, not the routing/circuit path. They query example.com with bounded concurrency and store results separately, keyed by exact resolver settings. A successful manual probe does not reset a circuit, change configuration, activate interception or appear as normal DNS traffic. Error codes are stable and localized in the GUI; measurement timestamps distinguish traffic results from manual tests.
 
 ## Bootstrap
 

@@ -171,10 +171,15 @@ public static class DnsWire
     }
 
     public static bool MatchesQuestion(ReadOnlySpan<byte> query, ReadOnlySpan<byte> response)
+        => IsUsableResponse(response) && MatchesResponseQuestion(query, response);
+
+    // Matching a response and judging its DNS result are separate decisions. A valid
+    // REFUSED/SERVFAIL response must not be mistaken for a transport failure.
+    public static bool MatchesResponseQuestion(ReadOnlySpan<byte> query, ReadOnlySpan<byte> response)
     {
         try
         {
-            if (!IsUsableResponse(response) || GetId(query) != GetId(response) || (query[2] & 0x78) != (response[2] & 0x78)) return false;
+            if (response.Length < HeaderLength || (response[2] & 0x80) == 0 || GetId(query) != GetId(response) || (query[2] & 0x78) != (response[2] & 0x78)) return false;
             var expected = ReadFirstQuestion(query);
             var actual = ReadFirstQuestion(response);
             return expected.Name.Equals(actual.Name, StringComparison.OrdinalIgnoreCase) && expected.Type == actual.Type && expected.Class == actual.Class;

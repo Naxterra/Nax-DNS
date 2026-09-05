@@ -22,6 +22,7 @@ public sealed class ControlPipeWorker(
     ILogger<ControlPipeWorker> logger) : BackgroundService
 {
     public const string PipeName = "BetterDNS.Control";
+    private readonly SemaphoreSlim probeGate = new(1, 1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -88,7 +89,8 @@ public sealed class ControlPipeWorker(
             catch (Exception error) when (error is not OperationCanceledException)
             {
                 logger.LogWarning(error, "Control request failed.");
-                var response = new ControlResponse(false, Error: error.Message);
+                var response = new ControlResponse(false, Error: error.Message,
+                    ErrorCode: error is InvalidDataException or ArgumentException ? "configuration-invalid" : "operation-rejected");
                 try
                 {
                     await writer.WriteLineAsync(JsonSerializer.Serialize(response, JsonSettings.Wire).AsMemory(), cancellationToken).ConfigureAwait(false);
@@ -110,8 +112,25 @@ public sealed class ControlPipeWorker(
                     configuration,
                     health.Snapshot(configuration.Upstreams),
                     queryLog.Snapshot(),
-                    enforcementState.Snapshot());
+                    enforcementState.Snapshot(),
+                    router.ProbeSnapshot(configuration.Upstreams));
                 return new(true, snapshot);
+
+            case "testupstreams":
+                if (!await probeGate.WaitAsync(0, cancellationToken).ConfigureAwait(false)) return new(false, Error: "probe-busy", ErrorCode: "probe-busy");
+                try
+                {
+                    var providers = configurationStore.Current.Upstreams;
+                    using var concurrency = new SemaphoreSlim(4, 4);
+                    var results = await Task.WhenAll(providers.Select(async upstream =>
+                    {
+                        await concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        try { return await router.ProbeAsync(upstream, cancellationToken).ConfigureAwait(false); }
+                        finally { concurrency.Release(); }
+                    })).ConfigureAwait(false);
+                    return new(true, results);
+                }
+                finally { probeGate.Release(); }
 
             case "saveconfiguration":
                 var updated = request.Payload.Deserialize<BetterDnsConfiguration>(configurationStore.JsonOptions)
@@ -141,7 +160,7 @@ public sealed class ControlPipeWorker(
                         cancellationToken).ConfigureAwait(false);
                     if (!DnsWire.IsUsableResponse(probe))
                     {
-                        throw new InvalidOperationException("Protection was not enabled because every resolver in the default chain failed its preflight query.");
+                        throw new InvalidOperationException("Protection was not enabled because the default route did not return a successful DNS answer to its preflight query.");
                     }
                 }
 

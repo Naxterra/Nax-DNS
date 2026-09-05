@@ -7,6 +7,7 @@ public sealed record ServiceSnapshot(
     BetterDnsConfiguration Configuration,
     IReadOnlyList<UpstreamStatus> Upstreams,
     IReadOnlyList<QueryLogEntry> Queries,
-    EnforcementSnapshot Enforcement);
+    EnforcementSnapshot Enforcement,
+    IReadOnlyList<ResolverProbeResult>? ProbeResults = null);
 
 public sealed record EnforcementSnapshot(bool Active, string Status, string? LastError, DateTimeOffset? LastChecked, bool DriverReady);

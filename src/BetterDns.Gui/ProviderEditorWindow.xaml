@@ -6,7 +6,7 @@
         Style="{StaticResource {x:Type Window}}" Background="{StaticResource WindowBackground}" Foreground="{StaticResource TextPrimary}">
     <Grid Margin="24" Background="{StaticResource WindowBackground}">
         <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="0,0,12,0">
                 <TextBlock Text="{DynamicResource Provider.Title}" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock Text="{DynamicResource Provider.Hint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,18" />

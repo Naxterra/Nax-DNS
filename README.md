@@ -4,6 +4,8 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.4.0 adds **Activity → Test DNS servers / Aktivität → DNS-Server prüfen**. This sends a DNS query directly to every enabled, saved server and reports the result, latency and timestamp. It does not reorder providers, change configuration or reset routing cooldowns. Status refresh alone still only reads current state. The Activity page also shows localized errors and per-query attempt/fallback reasons. **Advanced → Fallback groups** now edits named groups and ordered server lists instead of raw IDs. See [0.4.0 verification](docs/VERIFICATION-0.4.0.md).
+
 0.3.1 fixes server enable/disable checkboxes, dark editor frames and scrollbars, tab selection colors, protocol capitalization and generated placeholder labels. Known providers, including personal Control D profiles, now receive bootstrap addresses automatically in the service. Existing profiles and explicit custom IPs are retained. See [0.3.1 verification](docs/VERIFICATION-0.3.1.md).
 
 Version 0.3.0 replaces the configuration-first dashboard with a primary/backup workflow:
@@ -47,7 +49,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.3.1-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
+Download `BetterDNS-Setup-0.4.0-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
@@ -110,7 +112,7 @@ The service owns `%ProgramData%\BetterDNS\config.json`; the elevated GUI updates
 - bootstrap IP addresses for custom hostname-based providers; known providers use automatic bootstrap addresses when the field is empty;
 - a timeout.
 
-Failover treats valid `NXDOMAIN` answers as final. Transport failures, invalid replies, `SERVFAIL`, and `REFUSED` continue to the next resolver.
+Failover is triggered by connection/transport failures or invalid replies. Valid DNS replies, including `NXDOMAIN`, `REFUSED` and `SERVFAIL`, are returned unchanged: a provider's per-domain policy/error response does not automatically send the query to a different provider. Reaching the connection-failure threshold pauses a server for its cooldown. Old in-flight responses cannot clear that cooldown; after expiry only one recovery request is allowed at a time. While all eligible servers are paused or unavailable, the client receives local `SERVFAIL` rather than bypassing the configured route.
 
 The server-list checkboxes edit whether a server is enabled. Click Save changes to apply. Disabled servers are skipped without losing their fallback order. While routing is active, the GUI prevents disabling every server in the default route; turn routing off first if that is intended. Bootstrap IPs are connection addresses for the encrypted endpoint, not additional DNS providers in the failover chain. For Control D you can leave the field empty; manual addresses are optional overrides.
 

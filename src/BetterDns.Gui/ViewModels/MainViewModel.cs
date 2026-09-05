@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using BetterDns.Core.Configuration;
 using BetterDns.Core.Ipc;
+using BetterDns.Core.Routing;
 using BetterDns.Gui.Localization;
 
 namespace BetterDns.Gui.ViewModels;
@@ -11,6 +12,7 @@ namespace BetterDns.Gui.ViewModels;
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly IControlClient client;
+    private readonly SemaphoreSlim stateGate = new(1, 1);
     private readonly System.Windows.Threading.DispatcherTimer timer;
     private readonly HashSet<ObservableObject> trackedEditors = [];
     private bool loaded, loading, refreshing, isConnected, isActive, isBusy, protectionConfirmed, routeEdited, hasUnsavedChanges;
@@ -20,12 +22,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int watchdogSeconds = 15, selectedTabIndex;
     private string statusMessage = LocalizationManager.Get("Status.Connecting");
     private string? actionError, noticeKey;
+    private string? technicalError;
+    public string StatusDetails => technicalError ?? StatusMessage;
     private BetterDnsConfiguration? savedConfiguration;
     private ServiceSnapshot? lastSnapshot;
     private DateTimeOffset monitorSince = DateTimeOffset.MinValue;
     private UpstreamEditor? selectedUpstream, primaryProvider, backupProvider, selectedExtraFallback, extraFallbackCandidate;
     private ChainEditor? selectedChain;
     private RuleEditor? selectedRule;
+    private UpstreamEditor? selectedChainServer, chainCandidate;
+    private QueryView? selectedQuery;
+    public bool HasInputErrors { get; set; }
 
     public MainViewModel() : this(new ControlClient()) { }
 
@@ -35,6 +42,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ToggleProtectionCommand = new AsyncCommand(ToggleProtectionAsync, () => IsConnected && !IsBusy);
         RefreshCommand = new AsyncCommand(RefreshAsync, () => !IsBusy);
         SaveCommand = new AsyncCommand(SaveAsync, () => IsConnected && !IsBusy);
+        TestServersCommand = new AsyncCommand(TestServersAsync, () => IsConnected && !IsBusy);
+        AddChainServerCommand = new RelayCommand(() => EditChainOrder("add"));
+        RemoveChainServerCommand = new RelayCommand(() => EditChainOrder("remove"));
+        MoveChainServerUpCommand = new RelayCommand(() => EditChainOrder("up"));
+        MoveChainServerDownCommand = new RelayCommand(() => EditChainOrder("down"));
         AddUpstreamCommand = new RelayCommand(() => EditProviderRequested?.Invoke(null));
         EditUpstreamCommand = new RelayCommand(() => { if (SelectedUpstream is not null) EditProviderRequested?.Invoke(SelectedUpstream); });
         RemoveUpstreamCommand = new RelayCommand(RemoveSelectedProvider);
@@ -83,6 +95,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<UpstreamEditor> AdditionalFallbacks { get; } = [];
     public ObservableCollection<UpstreamStatusView> UpstreamStatuses { get; } = [];
     public ObservableCollection<QueryView> Queries { get; } = [];
+    public ObservableCollection<UpstreamEditor> SelectedChainServers { get; } = [];
+    public IReadOnlyList<SelectionOption<DomainMatchKind>> MatchOptions => Enum.GetValues<DomainMatchKind>().Select(value => new SelectionOption<DomainMatchKind>(value, L("Match." + value))).ToArray();
+    public IReadOnlyList<SelectionOption<RuleAction>> ActionOptions => Enum.GetValues<RuleAction>().Select(value => new SelectionOption<RuleAction>(value, L("RuleAction." + value))).ToArray();
+    public AsyncCommand TestServersCommand { get; }
+    public RelayCommand AddChainServerCommand { get; }
+    public RelayCommand RemoveChainServerCommand { get; }
+    public RelayCommand MoveChainServerUpCommand { get; }
+    public RelayCommand MoveChainServerDownCommand { get; }
     public AsyncCommand ToggleProtectionCommand { get; }
     public AsyncCommand RefreshCommand { get; }
     public AsyncCommand SaveCommand { get; }
@@ -123,13 +143,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string LiveResolverText { get; private set; } = LocalizationManager.Get("Setup.RoutingOff");
     public string LiveRouteDetail { get; private set; } = string.Empty;
     public bool LastResponseUsedBackup { get; private set; }
+    public string RoutingStateText { get; private set; } = "";
+    public string RoutingStateDetail { get; private set; } = "";
+    public QueryView? SelectedQuery { get => selectedQuery; set { if (Set(ref selectedQuery, value)) Raise(nameof(QueryDetails)); } }
+    public string QueryDetails => SelectedQuery?.Details ?? L("Activity.SelectQuery");
+    public UpstreamEditor? SelectedChainServer { get => selectedChainServer; set => Set(ref selectedChainServer, value); }
+    public UpstreamEditor? ChainCandidate { get => chainCandidate; set => Set(ref chainCandidate, value); }
     public int SelectedTabIndex { get => selectedTabIndex; set => Set(ref selectedTabIndex, value); }
     public string DefaultChainId { get => defaultChainId; set { if (Set(ref defaultChainId, value) && !loading) { LoadRouteFromEditors(); DraftChanged(); } } }
     public bool EnforcementEnabled { get => enforcementEnabled; set { if (Set(ref enforcementEnabled, value)) DraftChanged(); } }
     public bool BlockPlaintextDns { get => blockPlaintextDns; set { if (Set(ref blockPlaintextDns, value)) DraftChanged(); } }
     public int WatchdogSeconds { get => watchdogSeconds; set { if (Set(ref watchdogSeconds, value)) DraftChanged(); } }
     public UpstreamEditor? SelectedUpstream { get => selectedUpstream; set => Set(ref selectedUpstream, value); }
-    public ChainEditor? SelectedChain { get => selectedChain; set => Set(ref selectedChain, value); }
+    public ChainEditor? SelectedChain { get => selectedChain; set { if (Set(ref selectedChain, value)) ReloadChainServers(); } }
     public RuleEditor? SelectedRule { get => selectedRule; set => Set(ref selectedRule, value); }
     public UpstreamEditor? PrimaryProvider
     {
@@ -166,7 +192,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SelectedLanguage
     {
         get => selectedLanguage;
-        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); loading = true; try { foreach (var provider in Upstreams) provider.RefreshDisplayName(); } finally { loading = false; } UpdatePresentation(); } }
+        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); loading = true; try { foreach (var provider in Upstreams) provider.RefreshDisplayName(); foreach (var chain in Chains) chain.RefreshDisplayName(); } finally { loading = false; } Raise(nameof(MatchOptions)); Raise(nameof(ActionOptions)); UpdatePresentation(); } }
     }
 
     public async Task InitializeAsync() { await RefreshAsync(); timer.Start(); }
@@ -176,6 +202,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public async Task RefreshAsync()
     {
         if (refreshing || IsBusy || IsProviderEditorOpen) return;
+        if (!await stateGate.WaitAsync(0)) return;
         refreshing = true;
         try
         {
@@ -198,14 +225,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             IsConnected = false;
             protectionConfirmed = false;
-            StatusMessage = L("Status.ServiceUnavailable", error.Message);
+            StatusMessage = L("Status.ServiceUnavailable", DnsText.Failure(ResolverFailure.Classify(error)));
+            technicalError = error.Message; Raise(nameof(StatusDetails));
             UpdateLiveRoute();
             Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText));
         }
-        finally { refreshing = false; }
+        finally { refreshing = false; stateGate.Release(); }
     }
 
     public Task SaveAsync() => RunActionAsync(async () => { await PersistAsync(); noticeKey = "Status.Saved"; });
+
+    public async Task TestServersAsync()
+    {
+        if (HasUnsavedChanges || HasInputErrors) { SetError("Probe.SaveFirst"); return; }
+        await RunActionAsync(async () =>
+        {
+            StatusMessage = L("Probe.Running");
+            await client.SendAsync<IReadOnlyList<ResolverProbeResult>>("testUpstreams", false);
+            noticeKey = "Probe.Finished";
+        });
+    }
 
     public Task ToggleProtectionAsync() => RunActionAsync(async () =>
     {
@@ -228,16 +267,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (IsBusy || !IsConnected) return;
         IsBusy = true;
+        await stateGate.WaitAsync();
         actionError = null;
+        technicalError = null;
         StatusMessage = L("Setup.Working");
         try { await action(); }
-        catch (Exception error) { actionError = error.Message; }
-        finally { IsBusy = false; }
+        catch (Exception error)
+        {
+            technicalError = error.Message;
+            actionError = error.Data["ErrorCode"] is string code
+                ? L(code == "probe-busy" ? "Probe.Busy" : code == "configuration-invalid" ? "Control.InvalidConfiguration" : "Control.Rejected")
+                : error is System.IO.IOException or OperationCanceledException ? DnsText.Failure(ResolverFailure.Classify(error)) : error.Message;
+        }
+        finally { stateGate.Release(); IsBusy = false; }
         await RefreshAsync();
+        Raise(nameof(StatusDetails));
     }
 
     private async Task PersistAsync(bool enabling = false)
     {
+        if (HasInputErrors) throw new InvalidOperationException(L("Status.InvalidInput"));
         var current = await client.SendAsync<ServiceSnapshot>("getState", false);
         if (savedConfiguration is not null && Fingerprint(current.Configuration) != Fingerprint(savedConfiguration))
             throw new InvalidOperationException(L("Setup.Conflict"));
@@ -249,6 +298,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public BetterDnsConfiguration BuildConfiguration(bool active, bool requireEnabledProvider = false)
     {
+        if (Chains.Any(chain => chain.FailureThreshold is < 1 or > 10 || chain.CooldownSeconds is < 1 or > 3600))
+            throw new InvalidOperationException(L("Chain.InvalidNumbers"));
         if (PrimaryProvider is null) throw new InvalidOperationException(L("Setup.ChoosePrimary"));
         var providers = OrderedProviders().ToArray();
         if (providers.Select(provider => provider.Id).Distinct(StringComparer.Ordinal).Count() != providers.Length)
@@ -320,6 +371,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         loading = true;
         var selectedId = SelectedUpstream?.Id;
+        var chainId = SelectedChain?.Id;
         try
         {
             Upstreams.Clear(); foreach (var item in configuration.Upstreams) Upstreams.Add(UpstreamEditor.From(item));
@@ -331,6 +383,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             WatchdogSeconds = configuration.Enforcement.WatchdogSeconds;
             LoadRouteFromEditors();
             SelectedUpstream = Upstreams.FirstOrDefault(provider => provider.Id == selectedId);
+            SelectedChain = Chains.FirstOrDefault(chain => chain.Id == chainId) ?? Chains.FirstOrDefault(chain => chain.Id == DefaultChainId);
             savedConfiguration = configuration;
             HasUnsavedChanges = false;
             routeEdited = false;
@@ -366,6 +419,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void EditorChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender == SelectedChain && e.PropertyName == nameof(ChainEditor.UpstreamIds)) ReloadChainServers();
         if (sender is ChainEditor chain && chain.Id == DefaultChainId && e.PropertyName == nameof(ChainEditor.UpstreamIds) && !loading) LoadRouteFromEditors();
         DraftChanged();
     }
@@ -375,6 +429,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (loading) return;
         HasUnsavedChanges = true;
         actionError = null; noticeKey = null;
+        technicalError = null; Raise(nameof(StatusDetails));
         StatusMessage = L("Setup.Unsaved");
         NotifyRoute();
     }
@@ -396,28 +451,87 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public static string ProtocolName(DnsProtocol protocol) => protocol switch
     { DnsProtocol.Doh3 => "DoH3", DnsProtocol.Doh => "DoH", DnsProtocol.Dot => "DoT", DnsProtocol.Doq => "DoQ", _ => protocol.ToString() };
     private void SetError(string key) { actionError = L(key); StatusMessage = actionError; }
-    private void NotifyCommands() { ToggleProtectionCommand?.RaiseCanExecuteChanged(); SaveCommand?.RaiseCanExecuteChanged(); RefreshCommand?.RaiseCanExecuteChanged(); }
+    private void NotifyCommands() { ToggleProtectionCommand?.RaiseCanExecuteChanged(); SaveCommand?.RaiseCanExecuteChanged(); RefreshCommand?.RaiseCanExecuteChanged(); TestServersCommand?.RaiseCanExecuteChanged(); }
+
+    private void ReloadChainServers()
+    {
+        var selectedId = SelectedChainServer?.Id;
+        SelectedChainServers.Clear();
+        foreach (var id in SelectedChain?.ToModel().UpstreamIds ?? [])
+            if (Upstreams.FirstOrDefault(server => server.Id == id) is { } server) SelectedChainServers.Add(server);
+        SelectedChainServer = SelectedChainServers.FirstOrDefault(server => server.Id == selectedId);
+    }
+
+    private void EditChainOrder(string operation)
+    {
+        if (SelectedChain is null) return;
+        var order = SelectedChain.ToModel().UpstreamIds.ToList();
+        var index = SelectedChainServer is null ? -1 : order.IndexOf(SelectedChainServer.Id);
+        if (operation == "add" && ChainCandidate is not null)
+        {
+            if (order.Contains(ChainCandidate.Id)) { SetError("Setup.Duplicate"); return; }
+            order.Add(ChainCandidate.Id);
+        }
+        else if (operation == "remove" && index >= 0)
+        {
+            if (order.Count == 1) { SetError("Chain.OneServer"); return; }
+            order.RemoveAt(index);
+        }
+        else if (operation is "up" or "down" && index >= 0)
+        {
+            var target = index + (operation == "up" ? -1 : 1);
+            if (target < 0 || target >= order.Count) return;
+            (order[target], order[index]) = (order[index], order[target]);
+        }
+        else return;
+        SelectedChain.UpstreamIds = string.Join(", ", order);
+    }
 
     private void UpdatePresentation()
     {
         StatusMessage = actionError ?? (HasUnsavedChanges ? L("Setup.Unsaved") : L(noticeKey ?? "Status.Synchronized"));
+        var previousQuery = SelectedQuery;
         UpstreamStatuses.Clear(); Queries.Clear();
         if (lastSnapshot is { } snapshot)
         {
             foreach (var upstream in snapshot.Upstreams)
             {
-                var enabled = snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == upstream.Id)?.Enabled == true;
-                var key = !enabled ? "Health.Disabled" : upstream.LastError is not null ? "Health.Failed" :
-                    upstream.LastLatencyMilliseconds is null ? "Health.Untested" : "Health.Answered";
                 var definition = snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == upstream.Id);
-                UpstreamStatuses.Add(new(ProviderNames.Display(upstream.Name, definition?.Endpoint ?? ""), L(key), upstream.LastLatencyMilliseconds is { } latency ? $"{latency:0} ms" : "—", upstream.LastError));
+                var probe = snapshot.ProbeResults?.FirstOrDefault(result => result.UpstreamId == upstream.Id);
+                var manual = probe is not null && (upstream.LastChecked is null || probe.CheckedAt >= upstream.LastChecked);
+                var code = manual ? probe!.FailureCode : upstream.FailureCode ?? upstream.LastError;
+                var response = manual ? probe!.DnsResponse : upstream.LastDnsResponse;
+                var checkedAt = manual ? probe!.CheckedAt : upstream.LastChecked;
+                var latency = code is null ? (manual ? probe!.LatencyMilliseconds : upstream.LastLatencyMilliseconds) : null;
+                var stateText = definition?.Enabled != true ? L("Health.Disabled") : code is not null ? L("Health.Failed") :
+                    checkedAt is null && latency is null ? L("Health.Untested") : response is null ? L("Health.Answered") : DnsText.Response(response);
+                UpstreamStatuses.Add(new(ProviderNames.Display(upstream.Name, definition?.Endpoint ?? ""), stateText,
+                    latency is { } milliseconds ? $"{milliseconds:0} ms" : "—", DnsText.Failure(code),
+                    definition is null ? "—" : ProtocolName(definition.Protocol),
+                    checkedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—",
+                    checkedAt is null ? "—" : L(manual ? "Probe.Manual" : "Probe.Traffic")));
             }
             foreach (var query in snapshot.Queries)
                 Queries.Add(new(query.Timestamp.ToLocalTime().ToString("HH:mm:ss"), query.Domain,
-                    query.UpstreamName is null ? null : ProviderNames.Display(query.UpstreamName, snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == query.UpstreamId)?.Endpoint ?? ""), query.Result));
+                    query.UpstreamName is null ? null : ProviderNames.Display(query.UpstreamName, snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == query.UpstreamId)?.Endpoint ?? ""),
+                    DnsText.Response(query.Result), DescribeAttempts(query.Attempts, snapshot.Configuration)));
         }
+        SelectedQuery = Queries.FirstOrDefault(query => query.TimeText == previousQuery?.TimeText && query.Domain == previousQuery.Domain) ?? Queries.FirstOrDefault();
         Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); Raise(nameof(EnforcementText));
         NotifyRoute(); UpdateLiveRoute();
+    }
+
+    private static string DescribeAttempts(IReadOnlyList<ResolverAttempt>? attempts, BetterDnsConfiguration configuration)
+    {
+        if (attempts is null || attempts.Count == 0) return L("Activity.NoAttempts");
+        return string.Join(Environment.NewLine, attempts.Select(attempt =>
+        {
+            var endpoint = configuration.Upstreams.FirstOrDefault(provider => provider.Id == attempt.UpstreamId)?.Endpoint ?? "";
+            var name = ProviderNames.Display(attempt.UpstreamName, endpoint);
+            var result = attempt.FailureCode is null ? DnsText.Response(attempt.DnsResponse) : DnsText.Failure(attempt.FailureCode);
+            var time = attempt.ElapsedMilliseconds is { } ms ? $" · {ms:0} ms" : "";
+            return $"{name} · {ProtocolName(attempt.Protocol)} — {result}{time}";
+        }));
     }
 
     private void UpdateLiveRoute()
@@ -425,23 +539,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         LastResponseUsedBackup = false;
         LiveResolverText = L(!IsConnected ? "Connection.Unavailable" : !IsActive ? "Setup.RoutingOff" : !protectionConfirmed ? "Status.DriverUnavailable" : "Setup.Waiting");
         LiveRouteDetail = L("Setup.LiveHint");
+        RoutingStateText = LiveResolverText;
+        RoutingStateDetail = "";
         if (IsConnected && protectionConfirmed && lastSnapshot is { } snapshot)
         {
             var configuration = snapshot.Configuration;
+            var chain = configuration.Chains.First(chain => chain.Id == configuration.DefaultChainId);
+            var primary = chain.UpstreamIds.Select(id => configuration.Upstreams.FirstOrDefault(provider => provider.Id == id)).FirstOrDefault(provider => provider?.Enabled == true);
+            var primaryHealth = snapshot.Upstreams.FirstOrDefault(status => status.Id == primary?.Id);
+            var primaryName = primary is null ? "—" : ProviderNames.Display(primary.Name, primary.Endpoint);
+            RoutingStateText = L(primaryHealth?.CircuitOpenUntil is null ? "Routing.Primary" : "Routing.Cooldown", primaryName);
+            RoutingStateDetail = primaryHealth?.RecoveryInProgress == true ? L("Routing.Recovering") :
+                primaryHealth?.CircuitOpenUntil is { } until ? L("Routing.RetryAt", until.ToLocalTime().ToString("HH:mm:ss")) : L("Routing.Ordered");
             var last = snapshot.Queries.FirstOrDefault(query => query.ChainId == configuration.DefaultChainId && query.Timestamp >= monitorSince);
             if (last is not null)
             {
-                if (last.UpstreamId is null) { LiveResolverText = L("Setup.RouteFailed"); LiveRouteDetail = last.Result; }
+                if (last.UpstreamId is null) { LiveResolverText = L("Setup.RouteFailed"); LiveRouteDetail = DescribeAttempts(last.Attempts, configuration); }
                 else
                 {
-                    var primaryId = configuration.Chains.First(chain => chain.Id == configuration.DefaultChainId).UpstreamIds.FirstOrDefault();
-                    LastResponseUsedBackup = last.UpstreamId != primaryId;
+                    LastResponseUsedBackup = last.UpstreamId != primary?.Id;
                     var displayName = ProviderNames.Display(last.UpstreamName ?? "", configuration.Upstreams.FirstOrDefault(provider => provider.Id == last.UpstreamId)?.Endpoint ?? "");
                     LiveResolverText = $"{displayName} · {(last.Protocol is { } protocol ? ProtocolName(protocol) : "—")}";
                     LiveRouteDetail = L(LastResponseUsedBackup ? "Setup.BackupUsed" : "Setup.PrimaryUsed", last.Timestamp.ToLocalTime().ToString("HH:mm:ss"), $"{last.ElapsedMilliseconds:0}");
+                    if (LastResponseUsedBackup) LiveRouteDetail += Environment.NewLine + DescribeAttempts(last.Attempts?.Where(attempt => attempt.FailureCode is not null).ToArray(), configuration);
                 }
             }
         }
         Raise(nameof(LiveResolverText)); Raise(nameof(LiveRouteDetail)); Raise(nameof(LastResponseUsedBackup));
+        Raise(nameof(RoutingStateText)); Raise(nameof(RoutingStateDetail));
     }
 }

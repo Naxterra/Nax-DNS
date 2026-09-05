@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using BetterDns.Core.Configuration;
 using BetterDns.Core.Dns;
 using BetterDns.Core.Transports;
@@ -11,6 +12,7 @@ public sealed class DnsRouter : IDisposable
     private readonly UpstreamHealthTracker health;
     private readonly QueryLog queryLog;
     private readonly IReadOnlyDictionary<DnsProtocol, IDnsTransport> transports;
+    private readonly ConcurrentDictionary<string, ResolverProbeResult> probes = new(StringComparer.Ordinal);
 
     public IReadOnlyCollection<DnsProtocol> SupportedProtocols => transports.Keys.ToArray();
 
@@ -82,9 +84,16 @@ public sealed class DnsRouter : IDisposable
             .Cast<UpstreamDefinition>()
             .ToArray();
 
-        Exception? lastError = null;
-        foreach (var upstream in OrderByCircuit(upstreams, chain))
+        var attempts = new List<ResolverAttempt>();
+        foreach (var upstream in upstreams)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var lease = health.TryBeginAttempt(upstream, DateTimeOffset.UtcNow);
+            if (lease is null)
+            {
+                attempts.Add(new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, null, "cooldown", null));
+                continue;
+            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(upstream.TimeoutMilliseconds, 250, 30_000)));
             var attempt = Stopwatch.StartNew();
@@ -93,12 +102,14 @@ public sealed class DnsRouter : IDisposable
                 var response = await transports[upstream.Protocol]
                     .QueryAsync(upstream, query, timeout.Token)
                     .ConfigureAwait(false);
-                if (!DnsWire.MatchesQuestion(query.Span, response))
+                if (!DnsWire.MatchesResponseQuestion(query.Span, response))
                 {
                     throw new InvalidDataException($"Resolver returned {DnsWire.ResponseCodeName(response)}.");
                 }
 
-                health.RecordSuccess(upstream, attempt.Elapsed);
+                var responseCode = DnsWire.ResponseCodeName(response);
+                health.Succeed(lease, attempt.Elapsed, DateTimeOffset.UtcNow, responseCode);
+                attempts.Add(new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, attempt.Elapsed.TotalMilliseconds, null, responseCode));
                 queryLog.Add(new(
                     DateTimeOffset.UtcNow,
                     domain,
@@ -108,13 +119,21 @@ public sealed class DnsRouter : IDisposable
                     stopwatch.Elapsed.TotalMilliseconds,
                     upstream.Id,
                     chain.Id,
-                    upstream.Protocol));
+                    upstream.Protocol,
+                    attempts));
                 return response;
             }
-            catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                lastError = error;
-                health.RecordFailure(upstream, chain, error, DateTimeOffset.UtcNow);
+                health.Cancel(lease);
+                throw;
+            }
+            catch (Exception error)
+            {
+                if (cancellationToken.IsCancellationRequested) { health.Cancel(lease); cancellationToken.ThrowIfCancellationRequested(); }
+                var code = ResolverFailure.Classify(error);
+                health.Fail(lease, chain, code, DateTimeOffset.UtcNow);
+                attempts.Add(new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, attempt.Elapsed.TotalMilliseconds, code, null));
             }
         }
 
@@ -123,9 +142,10 @@ public sealed class DnsRouter : IDisposable
             domain,
             rule?.Name,
             null,
-            lastError is null ? "NO UPSTREAM" : "FAILOVER EXHAUSTED",
+            attempts.Count == 0 ? "NO UPSTREAM" : "FAILOVER EXHAUSTED",
             stopwatch.Elapsed.TotalMilliseconds,
-            ChainId: chain.Id));
+            ChainId: chain.Id,
+            Attempts: attempts));
         return DnsWire.CreateErrorResponse(query.Span, 2);
     }
 
@@ -137,13 +157,38 @@ public sealed class DnsRouter : IDisposable
         }
     }
 
-    private IEnumerable<UpstreamDefinition> OrderByCircuit(
-        IReadOnlyList<UpstreamDefinition> upstreams,
-        FailoverChain chain)
+    public IReadOnlyList<ResolverProbeResult> ProbeSnapshot(IEnumerable<UpstreamDefinition> upstreams) => upstreams
+        .Select(upstream => probes.GetValueOrDefault(UpstreamHealthTracker.Key(upstream)))
+        .Where(result => result is not null).Cast<ResolverProbeResult>().ToArray();
+
+    public async Task<ResolverProbeResult> ProbeAsync(UpstreamDefinition upstream, CancellationToken cancellationToken)
     {
-        var now = DateTimeOffset.UtcNow;
-        var healthy = upstreams.Where(value => health.CanTry(value, chain, now)).ToArray();
-        return healthy.Length > 0 ? healthy : upstreams.Take(1);
+        ResolverProbeResult result;
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            if (!upstream.Enabled) result = new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, null, "disabled", null);
+            else if (upstream.Protocol is DnsProtocol.Doh or DnsProtocol.Doh3 && upstream.HostName is "dns.nextdns.io" or "dns.controld.com" && new Uri(upstream.Endpoint).AbsolutePath.Trim('/').Length == 0)
+                result = new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, null, "profile-required", null);
+            else
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromMilliseconds(Math.Clamp(upstream.TimeoutMilliseconds, 250, 30000)));
+                var query = DnsWire.CreateQuery("example.com");
+                var response = await transports[upstream.Protocol].QueryAsync(upstream, query, timeout.Token).ConfigureAwait(false);
+                if (!DnsWire.MatchesResponseQuestion(query, response)) throw new InvalidDataException("Invalid response.");
+                result = new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, clock.Elapsed.TotalMilliseconds, null, DnsWire.ResponseCodeName(response));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception error)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            result = new(upstream.Id, upstream.Name, upstream.Protocol, DateTimeOffset.UtcNow, null, ResolverFailure.Classify(error), null);
+        }
+        // A manual latency test does not switch routes, clear cooldowns or contaminate the traffic log.
+        probes[UpstreamHealthTracker.Key(upstream)] = result;
+        return result;
     }
 
     private static byte[]? FindBootstrapAnswer(

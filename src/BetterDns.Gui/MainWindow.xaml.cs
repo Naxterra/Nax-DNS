@@ -13,6 +13,13 @@ public partial class MainWindow : System.Windows.Window
         this.viewModel = viewModel;
         InitializeComponent();
         DataContext = viewModel;
+        var inputErrors = new HashSet<System.Windows.Controls.ValidationError>();
+        System.Windows.Controls.Validation.AddErrorHandler(this, (_, args) =>
+        {
+            if (args.Action == System.Windows.Controls.ValidationErrorEventAction.Added) inputErrors.Add(args.Error);
+            else inputErrors.Remove(args.Error);
+            viewModel.HasInputErrors = inputErrors.Count > 0;
+        });
         viewModel.EditProviderRequested += OnEditProvider;
         Loaded += OnLoaded;
         Closed += OnClosed;

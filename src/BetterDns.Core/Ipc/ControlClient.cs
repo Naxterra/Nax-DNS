@@ -40,7 +40,9 @@ public sealed class ControlClient(string pipeName = ControlClient.PipeName) : IC
             ?? throw new InvalidDataException("Service returned an empty response.");
         if (!response.Success)
         {
-            throw new InvalidOperationException(response.Error ?? "The BetterDNS service rejected the request.");
+            var error = new InvalidOperationException(response.Error ?? "The BetterDNS service rejected the request.");
+            error.Data["ErrorCode"] = response.ErrorCode ?? "operation-rejected";
+            throw error;
         }
 
         return response.Data.Deserialize<T>(JsonOptions)
@@ -48,5 +50,5 @@ public sealed class ControlClient(string pipeName = ControlClient.PipeName) : IC
     }
 
     private sealed record Request(string Command, JsonElement Payload);
-    private sealed record Response(bool Success, JsonElement Data, string? Error);
+    private sealed record Response(bool Success, JsonElement Data, string? Error, string? ErrorCode);
 }
