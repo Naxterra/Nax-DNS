@@ -6,6 +6,6 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
-    <Version>0.5.3</Version>
+    <Version>0.5.5</Version>
   </PropertyGroup>
 </Project>

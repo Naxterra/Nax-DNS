@@ -103,7 +103,7 @@ public partial class MainWindow : System.Windows.Window
         finally { hidingToTray = false; }
     }
 
-    private void RestoreFromTray()
+    internal void RestoreFromTray()
     {
         ShowInTaskbar = true;
         Show();
@@ -118,6 +118,12 @@ public partial class MainWindow : System.Windows.Window
         exitRequested = true;
         Close();
     });
+
+    internal void RequestExitForUpdate()
+    {
+        exitRequested = true;
+        Close();
+    }
 
     private void OnSessionEnding(object sender, System.Windows.SessionEndingCancelEventArgs e)
     {

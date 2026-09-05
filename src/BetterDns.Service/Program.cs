@@ -51,6 +51,14 @@ if (args.Contains("--restore", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+using var instanceLock = ServiceInstanceLock.TryAcquire(ConfigurationStore.DataDirectory);
+if (instanceLock is null)
+{
+    Console.WriteLine("Another BetterDNS service process is already running.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(options => options.ServiceName = "BetterDNS");
 builder.Services.AddBetterDns();

@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../src/BetterDns.Gui/App.xaml" Link="UiSource/App.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../src/BetterDns.Gui/app.manifest" Link="UiSource/app.manifest" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

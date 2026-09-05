@@ -14,6 +14,22 @@ namespace BetterDns.Service.Tests;
 public sealed class ServiceIntegrationTests
 {
     [Fact]
+    public void Service_process_lock_allows_only_one_owner_and_recovers_after_exit()
+    {
+        var directory = Directory.CreateTempSubdirectory("BetterDns-instance-test-");
+        try
+        {
+            using var first = ServiceInstanceLock.TryAcquire(directory.FullName);
+            Assert.NotNull(first);
+            Assert.Null(ServiceInstanceLock.TryAcquire(directory.FullName));
+            first.Dispose();
+            using var replacement = ServiceInstanceLock.TryAcquire(directory.FullName);
+            Assert.NotNull(replacement);
+        }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
     public async Task Latency_endpoint_probes_saved_servers_without_configuration_or_routing_changes()
     {
         var directory = Directory.CreateTempSubdirectory("BetterDns-probe-test-").FullName;

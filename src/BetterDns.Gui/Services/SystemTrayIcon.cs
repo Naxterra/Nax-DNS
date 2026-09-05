@@ -34,7 +34,14 @@ public sealed class SystemTrayIcon : ISystemTrayIcon
         exitItem = new ToolStripMenuItem();
         openItem.Click += (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty);
         exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
-        var menu = new ContextMenuStrip();
+        var menu = new ContextMenuStrip
+        {
+            Renderer = new DarkTrayMenuRenderer(),
+            BackColor = DarkTrayMenuRenderer.Background,
+            ForeColor = DarkTrayMenuRenderer.Foreground,
+            ShowImageMargin = false,
+        };
+        openItem.Padding = exitItem.Padding = new Padding(8, 5, 8, 5);
         menu.Items.Add(openItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(exitItem);

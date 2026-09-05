@@ -34,7 +34,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private QueryView? selectedQuery;
     public bool HasInputErrors { get; set; }
 
-    public MainViewModel() : this(new ControlClient()) { }
+    public MainViewModel() : this((IControlClient?)App.ControlSession ?? new ControlClient(), App.ControlSession) { }
 
     public MainViewModel(IControlClient client, Services.IWindowsServiceManager? serviceManager = null)
     {

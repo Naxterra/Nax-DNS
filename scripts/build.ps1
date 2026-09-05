@@ -3,12 +3,15 @@ param(
     [ValidateSet('win-x64')]
     [string]$Runtime = 'win-x64',
 
-    [switch]$BuildInstaller
+    [switch]$BuildInstaller,
+
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]*$')]
+    [string]$ArtifactName = 'BetterDNS'
 )
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$artifactRoot = Join-Path $repositoryRoot 'artifacts\BetterDNS'
+$artifactRoot = Join-Path $repositoryRoot ('artifacts\' + $ArtifactName)
 
 Push-Location $repositoryRoot
 try {
@@ -62,7 +65,7 @@ try {
             throw 'Inno Setup 7 (or 6.6+) is required to build the Setup executable.'
         }
 
-        & $compiler 'installer\BetterDNS.iss'
+        & $compiler "/DBuildOutput=$artifactRoot" 'installer\BetterDNS.iss'
         if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
         Write-Host "Installer created in $(Join-Path $repositoryRoot 'artifacts\Installer')" -ForegroundColor Green
     }

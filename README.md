@@ -4,6 +4,8 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.5.5 combines the privilege, tray, and single-instance changes. The visible GUI now runs as the standard signed-in user and delegates only defined administrative operations to a short-lived, windowless elevated broker. Its tray menu follows the dark theme. Only one GUI may run per Windows user: starting BetterDNS again restores the existing tray window without launching another broker. The service holds an exclusive process lock in its protected data directory in addition to Windows Service Control Manager enforcement, so manually launching the service executable cannot create a second resolver. Installers from this version onward can request a graceful tray-GUI exit without force-killing it.
+
 0.5.3 makes the Activity query log useful for transferring domain lists. Select multiple rows with Ctrl or Shift and choose **Copy selected domains / Ausgewählte Domains kopieren**, or press Ctrl+C while the grid has focus. BetterDNS copies only unique domain names, one per line. A single domain cell also supports direct text selection and copying.
 
 0.5.2 keeps BetterDNS running in the Windows notification area. Minimizing the window or pressing its title-bar close button hides the GUI without stopping DNS routing or losing unsaved edits. Left-click the tray icon to reopen BetterDNS, or use its localized menu to open or fully exit. Full exit still protects an unsaved draft with a confirmation.

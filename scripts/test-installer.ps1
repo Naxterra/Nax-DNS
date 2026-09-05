@@ -40,6 +40,15 @@ try {
                 Start-Sleep -Seconds 4
                 $gui.Refresh()
                 if ($gui.HasExited) { throw 'Published GUI exited after creating its window.' }
+                $secondGui = Start-Process (Join-Path $target 'App\BetterDNS.exe') -PassThru
+                if (-not $secondGui.WaitForExit(10000)) { throw 'A second GUI instance did not hand off and exit.' }
+                if ($secondGui.ExitCode -ne 0) { throw "The GUI handoff exited $($secondGui.ExitCode)." }
+                $gui.Refresh()
+                if ($gui.HasExited) { throw 'Launching BetterDNS again terminated the existing GUI.' }
+                $exitRequest = Start-Process (Join-Path $target 'App\BetterDNS.exe') -ArgumentList '--exit-for-update' -PassThru
+                if (-not $exitRequest.WaitForExit(10000)) { throw 'The GUI update-exit request did not return.' }
+                if ($exitRequest.ExitCode -ne 0) { throw "The GUI update-exit request exited $($exitRequest.ExitCode)." }
+                if (-not $gui.WaitForExit(10000)) { throw 'The existing GUI did not exit for an update request.' }
             }
             finally {
                 if (-not $gui.HasExited) {

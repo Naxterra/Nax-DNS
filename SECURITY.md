@@ -6,7 +6,7 @@ Please open a private security advisory in the GitHub repository rather than pub
 
 ## Privileged components
 
-The Windows service runs as LocalSystem because loading the signed packet-diversion driver and managing firewall policy require administrative authority. The GUI is elevated and communicates through an ACL-restricted named pipe. Do not replace the service binary, driver, or loosen the installation directory ACL.
+The Windows service runs as LocalSystem because loading the signed packet-diversion driver and managing firewall policy require administrative authority. The GUI runs as a standard user. At startup, Windows requests administrator approval for a windowless control helper; this helper alone connects to the existing administrator-only service pipe. A private per-session pipe verifies the helper and GUI process IDs in both directions, and the helper accepts only the defined BetterDNS control and service-management operations. Closing the GUI disconnects the helper. The service pipe ACL and service privileges are unchanged. Do not replace the service binary, driver, or loosen the installation directory ACL.
 
 ## Network guarantees
 
