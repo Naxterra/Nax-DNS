@@ -227,11 +227,24 @@
             <TabItem Header="{DynamicResource Tab.Activity}">
                 <Grid Margin="0,18,0,0">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <TextBlock Text="{DynamicResource Activity.QueryLogTitle}" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding Queries}" SelectedItem="{Binding SelectedQuery}" IsReadOnly="True" MinHeight="100">
+                    <DockPanel Margin="0,0,0,12">
+                        <Button DockPanel.Dock="Right" Content="{DynamicResource Activity.CopyDomains}"
+                                Click="OnCopySelectedDomains" ToolTip="{DynamicResource Activity.CopyHint}" Margin="12,0,0,0" />
+                        <TextBlock Text="{DynamicResource Activity.QueryLogTitle}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <DataGrid x:Name="ActivityQueryGrid" Grid.Row="1" ItemsSource="{Binding Queries}" SelectedItem="{Binding SelectedQuery}"
+                              IsReadOnly="True" MinHeight="100" SelectionMode="Extended" SelectionUnit="FullRow"
+                              ClipboardCopyMode="None" PreviewKeyDown="OnActivityGridPreviewKeyDown">
                         <DataGrid.Columns>
                             <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Time}" Binding="{Binding TimeText}" Width="85" />
-                            <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Domain}" Binding="{Binding Domain}" Width="2*" />
+                            <DataGridTemplateColumn Header="{DynamicResource Column.Domain}" Width="2*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding Domain}" Style="{StaticResource GridSelectableText}"
+                                                 ToolTip="{DynamicResource Activity.DirectCopyHint}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Resolver}" Binding="{Binding UpstreamName}" Width="1.5*" />
                             <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Result}" Binding="{Binding Result}" Width="1.5*" />
                         </DataGrid.Columns>

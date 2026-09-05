@@ -154,7 +154,20 @@ public sealed class RenderedControlsTests
                 Render(content, "servers-latency-" + language);
                 model.SelectedTabIndex = 2;
                 Layout(content, 1244, 860);
-                Assert.Same(model.Queries, Descendants<DataGrid>(content).Single().ItemsSource);
+                var queryGrid = Descendants<DataGrid>(content).Single();
+                Assert.Same(model.Queries, queryGrid.ItemsSource);
+                Assert.Equal(DataGridSelectionMode.Extended, queryGrid.SelectionMode);
+                Assert.Equal(DataGridClipboardCopyMode.None, queryGrid.ClipboardCopyMode);
+                Assert.Contains(queryGrid.Columns, column => column is DataGridTemplateColumn &&
+                    Equals(column.Header, LocalizationManager.Get("Column.Domain")));
+                Assert.Contains(Descendants<Button>(content), button =>
+                    Equals(button.Content, LocalizationManager.Get("Activity.CopyDomains")));
+                Assert.Equal($"example.com{Environment.NewLine}other.example",
+                    MainWindow.FormatDomains([
+                        new("1", "example.com.", null, "ok"),
+                        new("2", "EXAMPLE.COM", null, "ok"),
+                        new("3", "other.example", null, "ok")
+                    ]));
                 Assert.DoesNotContain(Descendants<Button>(content), button => button.Command == model.TestServersCommand);
                 Render(content, "activity-" + language);
                 model.SelectedTabIndex = 3;

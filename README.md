@@ -4,6 +4,8 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.5.3 makes the Activity query log useful for transferring domain lists. Select multiple rows with Ctrl or Shift and choose **Copy selected domains / Ausgewählte Domains kopieren**, or press Ctrl+C while the grid has focus. BetterDNS copies only unique domain names, one per line. A single domain cell also supports direct text selection and copying.
+
 0.5.2 keeps BetterDNS running in the Windows notification area. Minimizing the window or pressing its title-bar close button hides the GUI without stopping DNS routing or losing unsaved edits. Left-click the tray icon to reopen BetterDNS, or use its localized menu to open or fully exit. Full exit still protects an unsaved draft with a confirmation.
 
 0.5.1 adds a real DNS listener on **127.0.0.1 and ::1, UDP and TCP port 53**, so VPN clients such as Windscribe can use BetterDNS as a local DNS server. Localhost traffic uses the listener; the WinDivert kernel path continues to intercept other outbound UDP/53 queries. Both paths use the same encrypted router, rules, failover state and query log. The listener never binds a LAN or wildcard address, refuses queries while routing is off, and reports a port conflict without stopping another DNS program.

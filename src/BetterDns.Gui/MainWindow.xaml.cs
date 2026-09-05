@@ -136,4 +136,37 @@ public partial class MainWindow : System.Windows.Window
         finally { viewModel.IsProviderEditorOpen = false; }
     }
 
+    private void OnCopySelectedDomains(object sender, System.Windows.RoutedEventArgs e) => CopySelectedDomains();
+
+    private void OnActivityGridPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.C ||
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0 ||
+            e.OriginalSource is System.Windows.Controls.TextBox) return;
+        e.Handled = CopySelectedDomains();
+    }
+
+    private bool CopySelectedDomains()
+    {
+        var selected = ActivityQueryGrid.SelectedItems.Cast<QueryView>().ToHashSet();
+        if (selected.Count == 0 && ActivityQueryGrid.SelectedItem is QueryView current) selected.Add(current);
+        var text = FormatDomains(ActivityQueryGrid.Items.Cast<QueryView>().Where(selected.Contains));
+        if (text.Length == 0) return false;
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            return true;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            return false;
+        }
+    }
+
+    public static string FormatDomains(IEnumerable<QueryView> queries) => string.Join(
+        Environment.NewLine,
+        queries.Select(query => query.Domain.Trim().TrimEnd('.'))
+            .Where(domain => domain.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+
 }

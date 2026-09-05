@@ -251,4 +251,7 @@
     <sys:String x:Key="LocalDns.Legacy">Diese Dienstversion besitzt keinen lokalen DNS-Listener. Installiere das aktuelle BetterDNS-Update.</sys:String>
     <sys:String x:Key="Tray.Open">BetterDNS öffnen</sys:String>
     <sys:String x:Key="Tray.Exit">BetterDNS beenden</sys:String>
+    <sys:String x:Key="Activity.CopyDomains">Ausgewählte Domains kopieren</sys:String>
+    <sys:String x:Key="Activity.CopyHint">Wähle mit Strg oder Umschalt eine oder mehrere Zeilen aus. Kopiert eindeutige Domains, eine pro Zeile.</sys:String>
+    <sys:String x:Key="Activity.DirectCopyHint">Der Domaintext kann auch direkt markiert und kopiert werden.</sys:String>
 </ResourceDictionary>
