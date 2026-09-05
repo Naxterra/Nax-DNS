@@ -298,7 +298,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public BetterDnsConfiguration BuildConfiguration(bool active, bool requireEnabledProvider = false)
     {
-        if (Chains.Any(chain => chain.FailureThreshold is < 1 or > 10 || chain.CooldownSeconds is < 1 or > 3600))
+        if (Chains.Any(chain => chain.FailureThreshold is < 1 or > 10 || chain.CooldownSeconds is < 1 or > 3600 || chain.FailoverAfterSeconds is < 0 or > 3600))
             throw new InvalidOperationException(L("Chain.InvalidNumbers"));
         if (PrimaryProvider is null) throw new InvalidOperationException(L("Setup.ChoosePrimary"));
         var providers = OrderedProviders().ToArray();
@@ -505,11 +505,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 var latency = code is null ? (manual ? probe!.LatencyMilliseconds : upstream.LastLatencyMilliseconds) : null;
                 var stateText = definition?.Enabled != true ? L("Health.Disabled") : code is not null ? L("Health.Failed") :
                     checkedAt is null && latency is null ? L("Health.Untested") : response is null ? L("Health.Answered") : DnsText.Response(response);
+                if (!manual && upstream is { FailureStartedAt: not null, CircuitOpenUntil: null }) stateText = L("Health.Confirming");
                 UpstreamStatuses.Add(new(ProviderNames.Display(upstream.Name, definition?.Endpoint ?? ""), stateText,
                     latency is { } milliseconds ? $"{milliseconds:0} ms" : "—", DnsText.Failure(code),
                     definition is null ? "—" : ProtocolName(definition.Protocol),
                     checkedAt?.ToLocalTime().ToString("HH:mm:ss") ?? "—",
-                    checkedAt is null ? "—" : L(manual ? "Probe.Manual" : "Probe.Traffic")));
+                    checkedAt is null ? "—" : L(manual ? "Probe.Manual" : upstream.MeasurementSource == "automatic" ? "Probe.Automatic" : "Probe.Traffic")));
             }
             foreach (var query in snapshot.Queries)
                 Queries.Add(new(query.Timestamp.ToLocalTime().ToString("HH:mm:ss"), query.Domain,
@@ -551,10 +552,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RoutingStateText = L(primaryHealth?.CircuitOpenUntil is null ? "Routing.Primary" : "Routing.Cooldown", primaryName);
             RoutingStateDetail = primaryHealth?.RecoveryInProgress == true ? L("Routing.Recovering") :
                 primaryHealth?.CircuitOpenUntil is { } until ? L("Routing.RetryAt", until.ToLocalTime().ToString("HH:mm:ss")) : L("Routing.Ordered");
+            if (primaryHealth is { CircuitOpenUntil: null, FailureStartedAt: { } firstFailure })
+            {
+                RoutingStateText = L("Routing.Confirming", primaryName);
+                RoutingStateDetail = L("Routing.GraceUntil", firstFailure.AddSeconds(chain.FailoverAfterSeconds).ToLocalTime().ToString("HH:mm:ss"));
+            }
             var last = snapshot.Queries.FirstOrDefault(query => query.ChainId == configuration.DefaultChainId && query.Timestamp >= monitorSince);
             if (last is not null)
             {
-                if (last.UpstreamId is null) { LiveResolverText = L("Setup.RouteFailed"); LiveRouteDetail = DescribeAttempts(last.Attempts, configuration); }
+                if (last.UpstreamId is null) { LiveResolverText = last.Result == "FAILOVER PENDING" ? L("Routing.Pending") : L("Setup.RouteFailed"); LiveRouteDetail = DescribeAttempts(last.Attempts, configuration); }
                 else
                 {
                     LastResponseUsedBackup = last.UpstreamId != primary?.Id;

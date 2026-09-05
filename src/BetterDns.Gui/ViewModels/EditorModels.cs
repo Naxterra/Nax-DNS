@@ -39,7 +39,7 @@ public sealed class UpstreamEditor : ObservableObject
         Name = value.Name,
         Protocol = value.Protocol,
         Endpoint = value.Endpoint,
-        BootstrapAddresses = string.Join(", ", value.BootstrapAddresses),
+        BootstrapAddresses = KnownResolverBootstrap.IsLegacyFreePreset(value) ? string.Empty : string.Join(", ", value.BootstrapAddresses),
         Enabled = value.Enabled,
         TimeoutMilliseconds = value.TimeoutMilliseconds
     };
@@ -69,6 +69,9 @@ public sealed class ChainEditor : ObservableObject
     public string UpstreamIds { get => upstreamIds; set => Set(ref upstreamIds, value); }
     private int failureThreshold = 2;
     public int FailureThreshold { get => failureThreshold; set => Set(ref failureThreshold, value); }
+    private int failoverAfterSeconds = 300;
+    public int FailoverAfterSeconds { get => failoverAfterSeconds; set { if (Set(ref failoverAfterSeconds, value)) Raise(nameof(FailoverMinutes)); } }
+    public double FailoverMinutes { get => FailoverAfterSeconds / 60.0; set => FailoverAfterSeconds = checked((int)Math.Round(value * 60)); }
     private int cooldownSeconds = 30;
     public int CooldownSeconds { get => cooldownSeconds; set => Set(ref cooldownSeconds, value); }
 
@@ -78,6 +81,7 @@ public sealed class ChainEditor : ObservableObject
         Name = value.Name,
         UpstreamIds = string.Join(", ", value.UpstreamIds),
         FailureThreshold = value.FailureThreshold,
+        FailoverAfterSeconds = value.FailoverAfterSeconds,
         CooldownSeconds = value.CooldownSeconds
     };
 
@@ -87,6 +91,7 @@ public sealed class ChainEditor : ObservableObject
         Name = Name.Trim(),
         UpstreamIds = UpstreamIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
         FailureThreshold = FailureThreshold,
+        FailoverAfterSeconds = FailoverAfterSeconds,
         CooldownSeconds = CooldownSeconds
     };
 }

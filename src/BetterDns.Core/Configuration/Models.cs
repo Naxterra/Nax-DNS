@@ -54,7 +54,7 @@ public sealed record UpstreamDefinition
     }
 
     [JsonIgnore]
-    public IReadOnlyList<IPAddress> ParsedBootstrapAddresses => (BootstrapAddresses.Count > 0 ? BootstrapAddresses : KnownResolverBootstrap.ForHost(HostName))
+    public IReadOnlyList<IPAddress> ParsedBootstrapAddresses => (BootstrapAddresses.Count > 0 && !KnownResolverBootstrap.IsLegacyFreePreset(this) ? BootstrapAddresses : KnownResolverBootstrap.ForHost(HostName))
         .Select(value => IPAddress.TryParse(value, out var address) ? address : null)
         .Where(static address => address is not null)
         .Cast<IPAddress>()
@@ -67,6 +67,7 @@ public sealed record FailoverChain
     public required string Name { get; init; }
     public IReadOnlyList<string> UpstreamIds { get; init; } = [];
     public int FailureThreshold { get; init; } = 2;
+    public int FailoverAfterSeconds { get; init; } = 300;
     public int CooldownSeconds { get; init; } = 30;
 }
 
@@ -110,7 +111,9 @@ public sealed record UpstreamStatus(
     DateTimeOffset? LastChecked = null,
     string? FailureCode = null,
     bool RecoveryInProgress = false,
-    string? LastDnsResponse = null);
+    string? LastDnsResponse = null,
+    DateTimeOffset? FailureStartedAt = null,
+    string MeasurementSource = "traffic");
 
 public sealed record QueryLogEntry(
     DateTimeOffset Timestamp,

@@ -25,6 +25,7 @@ public static class ServiceComposition
         {
             services.AddHostedService<KernelDnsInterceptorWorker>();
             services.AddHostedService<EnforcementWorker>();
+            services.AddHostedService<ResolverHealthWorker>();
         }
         services.AddHostedService<ControlPipeWorker>();
     }

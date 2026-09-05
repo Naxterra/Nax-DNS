@@ -8,7 +8,7 @@ namespace BetterDns.Core.Tests;
 public sealed class StableRoutingTests
 {
     private static UpstreamDefinition Server(string id) => new() { Id = id, Name = id, Protocol = DnsProtocol.Doh, Endpoint = "https://" + id + ".invalid/dns-query", TimeoutMilliseconds = 250 };
-    private static FailoverChain Chain(params string[] ids) => new() { Id = "default", Name = "Default", UpstreamIds = ids, FailureThreshold = 1, CooldownSeconds = 30 };
+    private static FailoverChain Chain(params string[] ids) => new() { Id = "default", Name = "Default", UpstreamIds = ids, FailureThreshold = 1, FailoverAfterSeconds = 0, CooldownSeconds = 30 };
     private static BetterDnsConfiguration Config(params UpstreamDefinition[] servers) => new() { DefaultChainId = "default", Upstreams = servers, Chains = [Chain(servers.Select(server => server.Id).ToArray())] };
 
     [Theory]

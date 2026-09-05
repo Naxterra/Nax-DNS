@@ -31,40 +31,63 @@ public sealed class UpstreamHealthTracker
         lock (state) return !state.RecoveryInProgress && (state.CircuitOpenUntil is null || state.CircuitOpenUntil <= now);
     }
 
-    public void Succeed(Attempt attempt, TimeSpan latency, DateTimeOffset now, string response)
+    public void Succeed(Attempt attempt, TimeSpan latency, DateTimeOffset now, string response, string source = "traffic")
     {
         var state = states[attempt.Key];
         lock (state)
         {
             if (state.Generation != attempt.Generation) return;
             state.Failures = 0;
+            state.FailureStartedAt = null;
             state.CircuitOpenUntil = null;
             state.RecoveryInProgress = false;
             state.LastLatencyMilliseconds = latency.TotalMilliseconds;
             state.LastChecked = now;
             state.FailureCode = null;
             state.LastDnsResponse = response;
+            state.MeasurementSource = source;
             if (attempt.Recovery) state.Generation++;
         }
     }
 
-    public void Fail(Attempt attempt, FailoverChain chain, string code, DateTimeOffset now)
+    public bool Fail(Attempt attempt, FailoverChain chain, string code, DateTimeOffset now, string source = "traffic")
     {
         var state = states[attempt.Key];
         lock (state)
         {
-            if (state.Generation != attempt.Generation) return;
+            if (state.Generation != attempt.Generation) return state.CircuitOpenUntil is not null;
+            // A long observation gap (sleep, idle service, etc.) is not proof of a continuous outage.
+            if (!attempt.Recovery && (state.FailureStartedAt is null ||
+                state.LastChecked is { } last && now - last > TimeSpan.FromSeconds(45)))
+            {
+                state.FailureStartedAt = now;
+                state.Failures = 0;
+            }
             state.Failures++;
             state.LastLatencyMilliseconds = null;
             state.LastChecked = now;
             state.FailureCode = code;
             state.LastDnsResponse = null;
-            if (attempt.Recovery || state.Failures >= Math.Max(1, chain.FailureThreshold))
+            state.MeasurementSource = source;
+            if (attempt.Recovery || (state.Failures >= Math.Max(1, chain.FailureThreshold) &&
+                now - state.FailureStartedAt!.Value >= TimeSpan.FromSeconds(Math.Max(0, chain.FailoverAfterSeconds))))
             {
                 state.CircuitOpenUntil = now.AddSeconds(Math.Max(1, chain.CooldownSeconds));
                 state.RecoveryInProgress = false;
                 state.Generation++; // Completions from pre-failure requests cannot end this cooldown.
             }
+            return state.CircuitOpenUntil is not null;
+        }
+    }
+
+    public bool NeedsConfirmation(UpstreamDefinition upstream, DateTimeOffset now)
+    {
+        if (!states.TryGetValue(Key(upstream), out var state)) return false;
+        lock (state)
+        {
+            if (state.RecoveryInProgress || state.FailureStartedAt is null) return false;
+            if (state.CircuitOpenUntil is { } until) return until <= now;
+            return state.LastChecked is { } last && now - last >= TimeSpan.FromSeconds(10);
         }
     }
 
@@ -96,7 +119,8 @@ public sealed class UpstreamHealthTracker
                 return new UpstreamStatus(upstream.Id, upstream.Name,
                     state.CircuitOpenUntil is null && !state.RecoveryInProgress,
                     state.Failures, state.CircuitOpenUntil, state.LastLatencyMilliseconds, state.FailureCode,
-                    state.LastChecked, state.FailureCode, state.RecoveryInProgress, state.LastDnsResponse);
+                    state.LastChecked, state.FailureCode, state.RecoveryInProgress, state.LastDnsResponse,
+                    state.FailureStartedAt, state.MeasurementSource);
         }).ToArray();
     }
 
@@ -112,5 +136,7 @@ public sealed class UpstreamHealthTracker
         public DateTimeOffset? LastChecked;
         public string? FailureCode;
         public string? LastDnsResponse;
+        public DateTimeOffset? FailureStartedAt;
+        public string MeasurementSource = "traffic";
     }
 }

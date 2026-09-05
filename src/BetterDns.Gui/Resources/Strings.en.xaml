@@ -196,11 +196,11 @@
     <sys:String x:Key="Chain.ServerOrder">Server order · top to bottom</sys:String>
     <sys:String x:Key="Chain.AddServer">Add server to group</sys:String>
     <sys:String x:Key="Chain.OneServer">A fallback group must contain at least one server.</sys:String>
-    <sys:String x:Key="Chain.FailureThreshold">Failures before cooldown</sys:String>
-    <sys:String x:Key="Chain.FailureHint">Setting, not an error counter: consecutive connection failures before a server is paused. An individual failed query can use fallback earlier.</sys:String>
+    <sys:String x:Key="Chain.FailureThreshold">Failover after (minutes)</sys:String>
+    <sys:String x:Key="Chain.FailureHint">Default: 5 minutes of repeated connection failures without a successful reply. A query still has its own short timeout. Before confirmation, no fallback provider is queried; 0 permits immediate failover.</sys:String>
     <sys:String x:Key="Chain.Cooldown">Cooldown (seconds)</sys:String>
-    <sys:String x:Key="Chain.CooldownHint">Wait before allowing one recovery attempt. Other queries use fallback until recovery succeeds. DNS replies such as REFUSED are not connection failures.</sys:String>
-    <sys:String x:Key="Chain.InvalidNumbers">Use 1–10 failures and a cooldown of 1–3600 seconds.</sys:String>
+    <sys:String x:Key="Chain.CooldownHint">After confirmed failure, wait this long before one recovery attempt. During confirmation, automatic checks run only when traffic has not supplied a recent result.</sys:String>
+    <sys:String x:Key="Chain.InvalidNumbers">Use a failover delay of 0–60 minutes and a cooldown of 1–3600 seconds.</sys:String>
     <sys:String x:Key="Status.InvalidInput">Correct the marked input fields before saving.</sys:String>
     <sys:String x:Key="Control.InvalidConfiguration">The service rejected the configuration. Hover over this message for technical details.</sys:String>
     <sys:String x:Key="Control.Rejected">The service could not complete this action. Hover for technical details.</sys:String>
@@ -211,4 +211,9 @@
     <sys:String x:Key="RuleAction.Route">Use group</sys:String>
     <sys:String x:Key="RuleAction.Block">Block</sys:String>
     <sys:String x:Key="RuleAction.Allow">Use default route</sys:String>
+    <sys:String x:Key="Probe.Automatic">Automatic health check</sys:String>
+    <sys:String x:Key="Routing.Confirming">Checking connection · staying with {0}</sys:String>
+    <sys:String x:Key="Routing.GraceUntil">No provider switch before {0}. A successful reply resets this timer. Individual queries may fail while the outage is being confirmed.</sys:String>
+    <sys:String x:Key="Routing.Pending">Query failed · provider switch not yet allowed</sys:String>
+    <sys:String x:Key="Health.Confirming">Confirming failure</sys:String>
 </ResourceDictionary>

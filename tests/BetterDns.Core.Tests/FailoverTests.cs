@@ -55,6 +55,7 @@ public sealed class FailoverTests
                     Name = "Default",
                     UpstreamIds = ["primary", "secondary"],
                     FailureThreshold = 1,
+                    FailoverAfterSeconds = 0,
                     CooldownSeconds = 60
                 }
             ]

@@ -310,7 +310,7 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                         <TextBlock Text="{DynamicResource Chain.FailureThreshold}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                        <TextBox Grid.Column="1" Text="{Binding SelectedChain.FailureThreshold, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}" />
+                                        <TextBox Grid.Column="1" Text="{Binding SelectedChain.FailoverMinutes, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}" />
                                         <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{DynamicResource Chain.FailureHint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,14" />
                                         <TextBlock Grid.Row="2" Text="{DynamicResource Chain.Cooldown}" VerticalAlignment="Center" TextWrapping="Wrap" />
                                         <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedChain.CooldownSeconds, UpdateSourceTrigger=PropertyChanged, NotifyOnValidationError=True, ValidatesOnExceptions=True}" />

@@ -3,6 +3,11 @@ namespace BetterDns.Core.Configuration;
 /// <summary>Operator-published bootstrap addresses; never discovered through intercepted DNS.</summary>
 public static class KnownResolverBootstrap
 {
+    public static bool IsLegacyFreePreset(UpstreamDefinition provider) =>
+        provider.Id == "controld" && provider.Name == "Control D (replace with your resolver URL)" &&
+        provider.Endpoint == "https://freedns.controld.com/p2" &&
+        provider.BootstrapAddresses.SequenceEqual(new[] { "76.76.2.2", "76.76.10.2", "2606:1a40::2", "2606:1a40:1::2" }, StringComparer.OrdinalIgnoreCase);
+
     public static IReadOnlyList<string> ForHost(string host)
     {
         host = host.TrimEnd('.').ToLowerInvariant();

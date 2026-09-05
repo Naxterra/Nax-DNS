@@ -196,11 +196,11 @@
     <sys:String x:Key="Chain.ServerOrder">Serverreihenfolge · von oben nach unten</sys:String>
     <sys:String x:Key="Chain.AddServer">Server zur Gruppe hinzufügen</sys:String>
     <sys:String x:Key="Chain.OneServer">Eine Fallback-Gruppe muss mindestens einen Server enthalten.</sys:String>
-    <sys:String x:Key="Chain.FailureThreshold">Fehler bis zur Auszeit</sys:String>
-    <sys:String x:Key="Chain.FailureHint">Einstellung, kein Fehlerzähler: aufeinanderfolgende Verbindungsfehler, bevor ein Server pausiert. Eine einzelne fehlgeschlagene Anfrage kann bereits vorher einen Fallback verwenden.</sys:String>
+    <sys:String x:Key="Chain.FailureThreshold">Failover nach (Minuten)</sys:String>
+    <sys:String x:Key="Chain.FailureHint">Standard: 5 Minuten wiederholte Verbindungsfehler ohne erfolgreiche Antwort. Jede Anfrage hat weiterhin ihr eigenes kurzes Zeitlimit. Vor der Bestätigung wird kein Fallback-Anbieter abgefragt; 0 erlaubt sofortigen Failover.</sys:String>
     <sys:String x:Key="Chain.Cooldown">Auszeit (Sekunden)</sys:String>
-    <sys:String x:Key="Chain.CooldownHint">Wartezeit bis zu einem einzelnen Wiederherstellungsversuch. Bis zu dessen Erfolg nutzen andere Anfragen den Fallback. DNS-Antworten wie REFUSED sind keine Verbindungsfehler.</sys:String>
-    <sys:String x:Key="Chain.InvalidNumbers">Verwende 1–10 Fehler und eine Auszeit von 1–3600 Sekunden.</sys:String>
+    <sys:String x:Key="Chain.CooldownHint">Nach bestätigtem Ausfall so lange bis zu einem Wiederherstellungsversuch warten. Während der Bestätigung wird automatisch geprüft, wenn der DNS-Verkehr kein aktuelles Ergebnis geliefert hat.</sys:String>
+    <sys:String x:Key="Chain.InvalidNumbers">Verwende eine Failover-Verzögerung von 0–60 Minuten und eine Auszeit von 1–3600 Sekunden.</sys:String>
     <sys:String x:Key="Status.InvalidInput">Korrigiere die markierten Eingabefelder vor dem Speichern.</sys:String>
     <sys:String x:Key="Control.InvalidConfiguration">Der Dienst hat die Konfiguration abgelehnt. Technische Details erscheinen beim Zeigen auf diese Meldung.</sys:String>
     <sys:String x:Key="Control.Rejected">Der Dienst konnte diese Aktion nicht abschließen. Technische Details erscheinen beim Zeigen auf diese Meldung.</sys:String>
@@ -211,4 +211,9 @@
     <sys:String x:Key="RuleAction.Route">Gruppe verwenden</sys:String>
     <sys:String x:Key="RuleAction.Block">Blockieren</sys:String>
     <sys:String x:Key="RuleAction.Allow">Standardroute verwenden</sys:String>
+    <sys:String x:Key="Probe.Automatic">Automatische Prüfung</sys:String>
+    <sys:String x:Key="Routing.Confirming">Verbindung wird geprüft · {0} bleibt ausgewählt</sys:String>
+    <sys:String x:Key="Routing.GraceUntil">Kein Anbieterwechsel vor {0}. Eine erfolgreiche Antwort setzt diesen Zeitraum zurück. Einzelne Anfragen können während der Bestätigung fehlschlagen.</sys:String>
+    <sys:String x:Key="Routing.Pending">Anfrage fehlgeschlagen · noch kein Anbieterwechsel</sys:String>
+    <sys:String x:Key="Health.Confirming">Störung wird geprüft</sys:String>
 </ResourceDictionary>

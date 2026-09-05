@@ -22,7 +22,7 @@ public static class DnsText
     {
         "NOERROR" => "Dns.NoError", "NXDOMAIN" => "Dns.NxDomain", "REFUSED" => "Dns.Refused",
         "SERVFAIL" => "Dns.ServFail", "FORMERR" => "Dns.FormErr", "NOTIMP" => "Dns.NotImp",
-        "BLOCKED" => "Dns.Blocked", "NO UPSTREAM" => "Setup.RouteFailed", "FAILOVER EXHAUSTED" => "Setup.RouteFailed",
+        "BLOCKED" => "Dns.Blocked", "NO UPSTREAM" => "Setup.RouteFailed", "FAILOVER EXHAUSTED" => "Setup.RouteFailed", "FAILOVER PENDING" => "Routing.Pending",
         _ => "Dns.Other"
     }, code ?? "—");
 }

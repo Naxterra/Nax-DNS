@@ -119,7 +119,7 @@ public sealed class RenderedControlsTests
                 Assert.DoesNotContain(groupText, text => text == "privacy-default" || text == "Privacy defaults" || text.Contains("hagezi-root,", StringComparison.Ordinal));
                 Assert.Contains(LocalizationManager.Get("Chain.FailureThreshold"), groupText);
                 Render(content, "groups-" + language);
-                var thresholdInput = Descendants<TextBox>(content).Single(box => BindingOperations.GetBinding(box, TextBox.TextProperty)?.Path.Path == "SelectedChain.FailureThreshold");
+                var thresholdInput = Descendants<TextBox>(content).Single(box => BindingOperations.GetBinding(box, TextBox.TextProperty)?.Path.Path == "SelectedChain.FailoverMinutes");
                 thresholdInput.SetCurrentValue(TextBox.TextProperty, "not-a-number");
                 thresholdInput.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
                 Layout(content, 1244, 860);

@@ -46,7 +46,7 @@ public static class DefaultConfiguration
                 Name = "Control D (replace with your resolver URL)",
                 Protocol = DnsProtocol.Doh3,
                 Endpoint = "https://freedns.controld.com/p2",
-                BootstrapAddresses = ["76.76.2.2", "76.76.10.2", "2606:1a40::2", "2606:1a40:1::2"]
+                BootstrapAddresses = []
             },
             new()
             {

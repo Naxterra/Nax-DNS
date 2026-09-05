@@ -95,6 +95,8 @@ public sealed class ConfigurationStore
         }
         if (configuration.Chains.Any(chain => chain is null || string.IsNullOrWhiteSpace(chain.Id) || chain.UpstreamIds is null || chain.UpstreamIds.Count == 0))
             throw new InvalidDataException("Each failover chain needs an ID and at least one resolver.");
+        if (configuration.Chains.Any(chain => chain.FailoverAfterSeconds is < 0 or > 3600))
+            throw new InvalidDataException("Failover delay must be between zero and 3600 seconds.");
         foreach (var rule in configuration.Rules)
         {
             if (rule is null || string.IsNullOrWhiteSpace(rule.Pattern) || !Enum.IsDefined(rule.MatchKind) || !Enum.IsDefined(rule.Action))
