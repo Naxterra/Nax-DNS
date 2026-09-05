@@ -11,8 +11,8 @@ public static class DefaultRouteEditor
         foreach (var id in orderedIds)
         {
             var upstream = configuration.Upstreams.SingleOrDefault(value => value.Id == id);
-            if (upstream is null || !upstream.Enabled)
-                throw new InvalidDataException("Every selected DNS provider must exist and be enabled.");
+            if (upstream is null)
+                throw new InvalidDataException("Every selected DNS provider must exist.");
         }
 
         var current = configuration.Chains.Single(value => value.Id == configuration.DefaultChainId);

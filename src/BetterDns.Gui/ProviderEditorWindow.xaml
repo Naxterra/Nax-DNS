@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{DynamicResource Provider.Title}" Width="650" Height="690" MinWidth="560" MinHeight="580"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Style="{StaticResource {x:Type Window}}" Background="{StaticResource WindowBackground}" Foreground="{StaticResource TextPrimary}">
     <Grid Margin="24" Background="{StaticResource WindowBackground}">
         <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -20,7 +21,8 @@
                 <TextBlock Text="{DynamicResource Provider.ProfileHint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,5,0,0" />
                 <TextBlock Text="{DynamicResource Provider.UseAs}" Margin="0,14,0,5" />
                 <ComboBox ItemsSource="{Binding Uses}" ItemTemplate="{StaticResource DisplayNamedItemTemplate}" SelectedValuePath="Code" SelectedValue="{Binding UseAs}" />
-                <Expander Header="{DynamicResource Provider.ConnectionSettings}" Margin="0,18,0,0" IsExpanded="True" Foreground="{StaticResource TextPrimary}">
+                <TextBlock Text="{Binding Editor.BootstrapStatus}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,14,0,0" />
+                <Expander Header="{DynamicResource Provider.ConnectionSettings}" Margin="0,12,0,0" Foreground="{StaticResource TextPrimary}">
                     <StackPanel Margin="0,10,0,0">
                         <TextBlock Text="{DynamicResource Column.Bootstrap}" />
                         <TextBox Text="{Binding Editor.BootstrapAddresses, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,0" />

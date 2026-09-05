@@ -5,6 +5,7 @@
         Icon="Assets/BetterDNS.ico"
         Height="900" Width="1260" MinHeight="680" MinWidth="980"
         Background="{StaticResource WindowBackground}"
+        Style="{StaticResource {x:Type Window}}"
         WindowStartupLocation="CenterScreen">
     <Grid Background="{StaticResource WindowBackground}" Margin="0">
       <Grid Margin="26">
@@ -106,7 +107,7 @@
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource Setup.Primary}" Foreground="{StaticResource AccentTeal}" FontSize="17" FontWeight="SemiBold" />
                                     <TextBlock Text="{DynamicResource Setup.PrimaryHint}" Style="{StaticResource MutedText}" Margin="0,5,0,12" />
-                                    <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource NamedItemTemplate}" SelectedItem="{Binding PrimaryProvider}" MinHeight="38" FontWeight="Normal" />
+                                    <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource ProviderItemTemplate}" SelectedItem="{Binding PrimaryProvider}" MinHeight="38" FontWeight="Normal" />
                                     <TextBlock Text="{Binding PrimaryDetails}" Style="{StaticResource MutedText}" Margin="0,10,0,0" />
                                 </StackPanel>
                             </Border>
@@ -114,7 +115,7 @@
                                 <StackPanel>
                                     <TextBlock Text="{DynamicResource Setup.Backup}" Foreground="{StaticResource AccentPurple}" FontSize="17" FontWeight="SemiBold" />
                                     <TextBlock Text="{DynamicResource Setup.BackupHint}" Style="{StaticResource MutedText}" Margin="0,5,0,12" />
-                                    <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource NamedItemTemplate}" SelectedItem="{Binding BackupProvider}" MinHeight="38" FontWeight="Normal" />
+                                    <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource ProviderItemTemplate}" SelectedItem="{Binding BackupProvider}" MinHeight="38" FontWeight="Normal" />
                                     <DockPanel Margin="0,8,0,0">
                                         <Button DockPanel.Dock="Right" Content="{DynamicResource Setup.NoBackup}" Command="{Binding ClearBackupCommand}" Padding="7,3" Margin="10,0,0,0" />
                                         <TextBlock Text="{Binding BackupDetails}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
@@ -135,7 +136,7 @@
                                     <TextBlock Text="{DynamicResource Setup.ExtraHint}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,10" />
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <ListBox ItemsSource="{Binding AdditionalFallbacks}" SelectedItem="{Binding SelectedExtraFallback}" DisplayMemberPath="Name" MinHeight="75" MaxHeight="150" />
+                                        <ListBox ItemsSource="{Binding AdditionalFallbacks}" SelectedItem="{Binding SelectedExtraFallback}" DisplayMemberPath="DisplayName" MinHeight="75" MaxHeight="150" />
                                         <StackPanel Grid.Column="1" Margin="12,0,0,0">
                                             <Button Content="{DynamicResource Action.Up}" Command="{Binding MoveExtraUpCommand}" Margin="0,0,0,5" />
                                             <Button Content="{DynamicResource Action.Down}" Command="{Binding MoveExtraDownCommand}" Margin="0,0,0,5" />
@@ -144,7 +145,7 @@
                                     </Grid>
                                     <DockPanel Margin="0,10,0,0">
                                         <Button DockPanel.Dock="Right" Content="{DynamicResource Setup.AddBackup}" Command="{Binding AddExtraFallbackCommand}" Margin="10,0,0,0" />
-                                        <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource NamedItemTemplate}" SelectedItem="{Binding ExtraFallbackCandidate}" />
+                                        <ComboBox ItemsSource="{Binding Upstreams}" ItemTemplate="{StaticResource ProviderItemTemplate}" SelectedItem="{Binding ExtraFallbackCandidate}" />
                                     </DockPanel>
                                 </StackPanel>
                             </Border>
@@ -183,10 +184,15 @@
                         </StackPanel>
                         <DataGrid ItemsSource="{Binding Upstreams}" SelectedItem="{Binding SelectedUpstream}" IsReadOnly="True">
                             <DataGrid.Columns>
-                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Name}" Binding="{Binding Name}" Width="1.4*" />
-                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Protocol}" Binding="{Binding Protocol}" Width="95" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Name}" Binding="{Binding DisplayName}" Width="1.4*" />
+                                <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Protocol}" Binding="{Binding ProtocolDisplayName}" Width="95" />
                                 <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" Header="{DynamicResource Column.Endpoint}" Binding="{Binding Endpoint}" Width="2*" />
-                                <DataGridCheckBoxColumn Header="{DynamicResource Column.On}" Binding="{Binding Enabled}" Width="75" />
+                                <DataGridTemplateColumn Header="{DynamicResource Column.On}" Width="95">
+                                    <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                                        <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                                  AutomationProperties.Name="{DynamicResource Provider.Enabled}" ToolTip="{DynamicResource Provider.ToggleHint}" />
+                                    </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
@@ -250,7 +256,7 @@
                         </Grid>
                         <DataGrid ItemsSource="{Binding Rules}" SelectedItem="{Binding SelectedRule}">
                             <DataGrid.Columns>
-                                <DataGridCheckBoxColumn Header="{DynamicResource Column.On}" Binding="{Binding Enabled}" Width="47" />
+                                <DataGridTemplateColumn Header="{DynamicResource Column.On}" Width="95"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Enabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center" /></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
                                 <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Name}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
                                 <DataGridTextColumn ElementStyle="{StaticResource GridDisplayText}" EditingElementStyle="{StaticResource GridEditText}" Header="{DynamicResource Column.Pattern}" Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}" Width="1.4*" />
                                 <DataGridTemplateColumn Header="{DynamicResource Column.Match}" Width="105">

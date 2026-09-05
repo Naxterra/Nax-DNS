@@ -114,7 +114,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string EnforcementText => lastSnapshot is null ? L("Status.DriverStarting") :
         lastSnapshot.Enforcement.LastError ?? L(lastSnapshot.Enforcement.DriverReady
             ? (protectionConfirmed ? "Setup.DriverActive" : "Setup.DriverReady") : "Status.DriverUnavailable");
-    public string RouteSummary => string.Join("  →  ", OrderedProviders().Select(provider => provider.Name));
+    public string RouteSummary => string.Join("  →  ", OrderedProviders().Select(provider => provider.DisplayName + (provider.Enabled ? "" : " · " + L("Health.Disabled"))));
     public string ExtraFallbackSummary => L("Setup.ExtraCount", AdditionalFallbacks.Count);
     public string ConfiguredRouteText => HasUnsavedChanges ? L("Setup.NotApplied") : L(IsActive ? "Setup.Applied" : "Setup.SavedOff");
     public string PrimaryDetails => ProviderDetails(PrimaryProvider);
@@ -166,7 +166,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SelectedLanguage
     {
         get => selectedLanguage;
-        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); UpdatePresentation(); } }
+        set { if (Set(ref selectedLanguage, value)) { LocalizationManager.Apply(value); loading = true; try { foreach (var provider in Upstreams) provider.RefreshDisplayName(); } finally { loading = false; } UpdatePresentation(); } }
     }
 
     public async Task InitializeAsync() { await RefreshAsync(); timer.Start(); }
@@ -217,7 +217,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            await PersistAsync();
+            await PersistAsync(enabling: true);
             await client.SendAsync<BetterDnsConfiguration>("setActive", true);
             monitorSince = DateTimeOffset.UtcNow;
             noticeKey = "Setup.Enabled";
@@ -236,28 +236,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await RefreshAsync();
     }
 
-    private async Task PersistAsync()
+    private async Task PersistAsync(bool enabling = false)
     {
         var current = await client.SendAsync<ServiceSnapshot>("getState", false);
         if (savedConfiguration is not null && Fingerprint(current.Configuration) != Fingerprint(savedConfiguration))
             throw new InvalidOperationException(L("Setup.Conflict"));
-        var configuration = BuildConfiguration(current.Configuration.Active);
+        var configuration = BuildConfiguration(current.Configuration.Active, requireEnabledProvider: enabling);
         var saved = await client.SendAsync<BetterDnsConfiguration>("saveConfiguration", configuration);
         if (savedConfiguration is null || Fingerprint(savedConfiguration) != Fingerprint(saved)) monitorSince = DateTimeOffset.UtcNow;
         LoadEditors(saved);
     }
 
-    public BetterDnsConfiguration BuildConfiguration(bool active)
+    public BetterDnsConfiguration BuildConfiguration(bool active, bool requireEnabledProvider = false)
     {
         if (PrimaryProvider is null) throw new InvalidOperationException(L("Setup.ChoosePrimary"));
         var providers = OrderedProviders().ToArray();
         if (providers.Select(provider => provider.Id).Distinct(StringComparer.Ordinal).Count() != providers.Length)
             throw new InvalidOperationException(L("Setup.Duplicate"));
-        if (providers.Any(provider => !provider.Enabled || !Upstreams.Contains(provider)))
-            throw new InvalidOperationException(L("Setup.DisabledProvider"));
-        foreach (var provider in providers)
+        if (providers.Any(provider => !Upstreams.Contains(provider)))
+            throw new InvalidOperationException(L("Setup.ChoosePrimary"));
+        if ((active || requireEnabledProvider) && !providers.Any(provider => provider.Enabled))
+            throw new InvalidOperationException(L("Setup.NoEnabledProvider"));
+        foreach (var provider in providers.Where(provider => provider.Enabled))
             if (ProviderValidation.Problem(provider.ToModel()) is { } key)
-                throw new InvalidOperationException(L("Setup.ProviderProblem", provider.Name, L(key)));
+                throw new InvalidOperationException(L("Setup.ProviderProblem", provider.DisplayName, L(key)));
 
         var configuration = new BetterDnsConfiguration
         {
@@ -407,10 +409,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 var enabled = snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == upstream.Id)?.Enabled == true;
                 var key = !enabled ? "Health.Disabled" : upstream.LastError is not null ? "Health.Failed" :
                     upstream.LastLatencyMilliseconds is null ? "Health.Untested" : "Health.Answered";
-                UpstreamStatuses.Add(new(upstream.Name, L(key), upstream.LastLatencyMilliseconds is { } latency ? $"{latency:0} ms" : "—", upstream.LastError));
+                var definition = snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == upstream.Id);
+                UpstreamStatuses.Add(new(ProviderNames.Display(upstream.Name, definition?.Endpoint ?? ""), L(key), upstream.LastLatencyMilliseconds is { } latency ? $"{latency:0} ms" : "—", upstream.LastError));
             }
             foreach (var query in snapshot.Queries)
-                Queries.Add(new(query.Timestamp.ToLocalTime().ToString("HH:mm:ss"), query.Domain, query.UpstreamName, query.Result));
+                Queries.Add(new(query.Timestamp.ToLocalTime().ToString("HH:mm:ss"), query.Domain,
+                    query.UpstreamName is null ? null : ProviderNames.Display(query.UpstreamName, snapshot.Configuration.Upstreams.FirstOrDefault(provider => provider.Id == query.UpstreamId)?.Endpoint ?? ""), query.Result));
         }
         Raise(nameof(ConnectionText)); Raise(nameof(ProtectionText)); Raise(nameof(ToggleButtonText)); Raise(nameof(EnforcementText));
         NotifyRoute(); UpdateLiveRoute();
@@ -432,7 +436,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     var primaryId = configuration.Chains.First(chain => chain.Id == configuration.DefaultChainId).UpstreamIds.FirstOrDefault();
                     LastResponseUsedBackup = last.UpstreamId != primaryId;
-                    LiveResolverText = $"{last.UpstreamName} · {(last.Protocol is { } protocol ? ProtocolName(protocol) : "—")}";
+                    var displayName = ProviderNames.Display(last.UpstreamName ?? "", configuration.Upstreams.FirstOrDefault(provider => provider.Id == last.UpstreamId)?.Endpoint ?? "");
+                    LiveResolverText = $"{displayName} · {(last.Protocol is { } protocol ? ProtocolName(protocol) : "—")}";
                     LiveRouteDetail = L(LastResponseUsedBackup ? "Setup.BackupUsed" : "Setup.PrimaryUsed", last.Timestamp.ToLocalTime().ToString("HH:mm:ss"), $"{last.ElapsedMilliseconds:0}");
                 }
             }

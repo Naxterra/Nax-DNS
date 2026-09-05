@@ -8,10 +8,10 @@
     <sys:String x:Key="Connection.Version">Dienst {0}</sys:String>
 
     <sys:String x:Key="Tab.Dashboard">Mein DNS</sys:String>
-    <sys:String x:Key="Tab.Servers">Anbieter</sys:String>
-    <sys:String x:Key="Tab.Failover">Ausfallschutz</sys:String>
+    <sys:String x:Key="Tab.Servers">DNS-Server</sys:String>
+    <sys:String x:Key="Tab.Failover">Failover</sys:String>
     <sys:String x:Key="Tab.Rules">Regeln</sys:String>
-    <sys:String x:Key="Tab.Protection">Schutz</sys:String>
+    <sys:String x:Key="Tab.Protection">DNS-Schutz</sys:String>
 
     <sys:String x:Key="Dashboard.ProtectionTitle">DNS-Schutz</sys:String>
     <sys:String x:Key="Dashboard.ResolverHealth">Resolver-Status</sys:String>
@@ -27,7 +27,7 @@
     <sys:String x:Key="Action.AddRule">Regel hinzufügen</sys:String>
     <sys:String x:Key="Action.RemoveSelected">Auswahl entfernen</sys:String>
 
-    <sys:String x:Key="Column.On">An</sys:String>
+    <sys:String x:Key="Column.On">Aktiviert</sys:String>
     <sys:String x:Key="Column.Name">Name</sys:String>
     <sys:String x:Key="Column.Resolver">Resolver</sys:String>
     <sys:String x:Key="Column.Ready">Letztes Ergebnis</sys:String>
@@ -78,9 +78,9 @@
     <sys:String x:Key="Tab.Advanced">Erweitert</sys:String>
     <sys:String x:Key="Setup.Heading">Bestimme, wohin deine DNS-Anfragen gehen</sys:String>
     <sys:String x:Key="Setup.Hint">Wähle deinen Hauptanbieter und einen Ersatz. „Speichern &amp; aktivieren“ übernimmt diese Auswahl und startet das DNS-Routing.</sys:String>
-    <sys:String x:Key="Setup.Primary">Primärer DNS</sys:String>
-    <sys:String x:Key="Setup.Backup">Ersatz-DNS</sys:String>
-    <sys:String x:Key="Setup.PrimaryHint">Wird bei normalen DNS-Anfragen zuerst verwendet.</sys:String>
+    <sys:String x:Key="Setup.Primary">Primärer DNS-Server</sys:String>
+    <sys:String x:Key="Setup.Backup">Fallback-DNS-Server</sys:String>
+    <sys:String x:Key="Setup.PrimaryHint">Wird zuerst verwendet, wenn aktiviert.</sys:String>
     <sys:String x:Key="Setup.BackupHint">Wird bei einem Ausfall automatisch verwendet.</sys:String>
     <sys:String x:Key="Setup.SaveEnable">Speichern &amp; aktivieren</sys:String>
     <sys:String x:Key="Setup.DriverActive">Kernel-Abfangschicht ist aktiv.</sys:String>
@@ -91,12 +91,12 @@
     <sys:String x:Key="Setup.ExtraCount">Weitere Ersatzanbieter ({0})</sys:String>
     <sys:String x:Key="Setup.ExtraHint">Diese Anbieter werden nach dem Ersatz-DNS in dieser Reihenfolge versucht. Vorhandene Ersatzanbieter bleiben erhalten.</sys:String>
     <sys:String x:Key="Setup.AddBackup">Zur Ersatzreihenfolge hinzufügen</sys:String>
-    <sys:String x:Key="Setup.NoBackup">Ersatz entfernen</sys:String>
+    <sys:String x:Key="Setup.NoBackup">Fallback entfernen</sys:String>
     <sys:String x:Key="Setup.NoneSelected">Nicht ausgewählt</sys:String>
     <sys:String x:Key="Setup.ProviderEnabled">aktiviert</sys:String>
-    <sys:String x:Key="Setup.ProviderDisabled">deaktiviert — Anbieter zuerst bearbeiten</sys:String>
+    <sys:String x:Key="Setup.ProviderDisabled">deaktiviert — wird bis zur Aktivierung übersprungen</sys:String>
     <sys:String x:Key="Setup.UsePrimary">Als primären DNS verwenden</sys:String>
-    <sys:String x:Key="Setup.UseBackup">Als Ersatz verwenden</sys:String>
+    <sys:String x:Key="Setup.UseBackup">Als Fallback verwenden</sys:String>
     <sys:String x:Key="Setup.LiveTitle">DNS-Nutzung · letzte Antwort über die Standardroute</sys:String>
     <sys:String x:Key="Setup.LiveHint">Zeigt echte Antworten der Standardroute, keinen Verbindungstest. Domainregeln können andere Anbieter verwenden.</sys:String>
     <sys:String x:Key="Setup.RoutingOff">Aus — BetterDNS verarbeitet keine DNS-Anfragen</sys:String>
@@ -121,7 +121,7 @@
     <sys:String x:Key="Health.Failed">Letzter Versuch fehlgeschlagen</sys:String>
     <sys:String x:Key="Health.Untested">Nicht getestet</sys:String>
     <sys:String x:Key="Health.Answered">Hat geantwortet</sys:String>
-    <sys:String x:Key="Provider.Title">DNS-Anbieter hinzufügen oder bearbeiten</sys:String>
+    <sys:String x:Key="Provider.Title">DNS-Server bearbeiten</sys:String>
     <sys:String x:Key="Provider.Hint">Füge deine Resolver-URL ein und wähle, wie der Anbieter verwendet werden soll. Erst das Speichern im Hauptfenster übernimmt die Änderungen.</sys:String>
     <sys:String x:Key="Provider.Preset">Anbietervorlage</sys:String>
     <sys:String x:Key="Provider.Custom">Benutzerdefiniert / aktuelle Werte behalten</sys:String>
@@ -129,21 +129,30 @@
     <sys:String x:Key="Provider.ProfileHint">Control D und NextDNS: vollständige URL aus deinem Konto inklusive Resolver-/Profil-ID einfügen. Anbietervorlagen verwenden DoH3.</sys:String>
     <sys:String x:Key="Provider.UseAs">Diesen Anbieter verwenden als</sys:String>
     <sys:String x:Key="Provider.LibraryOnly">Nur speichern — DNS-Routing nicht ändern</sys:String>
-    <sys:String x:Key="Provider.ConnectionSettings">Verbindungseinstellungen</sys:String>
-    <sys:String x:Key="Provider.BootstrapHint">Bei bekannten HTTPS-Anbietern werden diese IPs ausgefüllt. Für eigene Anbieter sind IPs des Betreibers nötig; sie werden nicht über unverschlüsseltes DNS ermittelt.</sys:String>
+    <sys:String x:Key="Provider.ConnectionSettings">Erweiterte Verbindungseinstellungen</sys:String>
+    <sys:String x:Key="Provider.BootstrapHint">Bei bekannten Anbietern wie Control D für automatische Adressen leer lassen. Eigene IPs überschreiben die Automatik; es sind Verbindungsziele, keine Fallback-DNS-Anbieter.</sys:String>
     <sys:String x:Key="Provider.Enabled">Anbieter aktiviert</sys:String>
     <sys:String x:Key="Provider.Accept">Diese Einstellungen übernehmen</sys:String>
-    <sys:String x:Key="Provider.LibraryTitle">Deine gespeicherten DNS-Anbieter</sys:String>
-    <sys:String x:Key="Provider.LibraryHint">Das ist deine Anbieterbibliothek. Wähle einen Eintrag und „Als primären DNS verwenden“ oder „Als Ersatz verwenden“. Ein neuer Eintrag allein aktiviert noch kein DNS-Routing.</sys:String>
+    <sys:String x:Key="Provider.LibraryTitle">Deine DNS-Server</sys:String>
+    <sys:String x:Key="Provider.LibraryHint">Server direkt per Kontrollkästchen aktivieren oder deaktivieren. Ihre Position in der Fallback-Reihenfolge bleibt erhalten. Die Auswahl erfolgt unter „Mein DNS“; „Änderungen speichern“ übernimmt den Entwurf.</sys:String>
     <sys:String x:Key="Provider.NameRequired">Gib einen Anbieternamen ein.</sys:String>
     <sys:String x:Key="Provider.TimeoutInvalid">Gib ein Zeitlimit zwischen 250 und 30000 ms ein.</sys:String>
     <sys:String x:Key="Provider.EndpointInvalid">Gib eine gültige HTTPS-URL oder einen zum Protokoll passenden TLS-/QUIC-Hostnamen ein.</sys:String>
     <sys:String x:Key="Provider.ProfileRequired">Füge deine vollständige Resolver-/Profil-URL ein, nicht nur den Hostnamen des Anbieters.</sys:String>
     <sys:String x:Key="Provider.BootstrapRequired">Ergänze im Anbieter-Editor mindestens eine Bootstrap-IP, um rekursive DNS-Anfragen zu vermeiden.</sys:String>
     <sys:String x:Key="Provider.BootstrapInvalid">Bootstrap-Adressen müssen durch Kommas getrennte IP-Adressen sein.</sys:String>
-    <sys:String x:Key="Action.Edit">Anbieter bearbeiten</sys:String>
+    <sys:String x:Key="Action.Edit">Server bearbeiten</sys:String>
     <sys:String x:Key="Action.Cancel">Abbrechen</sys:String>
     <sys:String x:Key="Action.Up">Nach oben</sys:String>
     <sys:String x:Key="Action.Down">Nach unten</sys:String>
     <sys:String x:Key="Setup.CloseDraft">Du hast ungespeicherte Änderungen. Schließen, ohne sie zu übernehmen?</sys:String>
+    <sys:String x:Key="Server.ControlDFree">Control D — öffentliches DNS</sys:String>
+    <sys:String x:Key="Server.ControlD">Control D</sys:String>
+    <sys:String x:Key="Server.NextDNS">NextDNS</sys:String>
+    <sys:String x:Key="Server.NextDNSMissing">NextDNS — Profil erforderlich</sys:String>
+    <sys:String x:Key="Provider.BootstrapAutomatic">Verbindungsadressen: automatisch. Für diesen Anbieter müssen keine Bootstrap-IPs eingegeben werden.</sys:String>
+    <sys:String x:Key="Provider.BootstrapManual">Verbindungsadressen: deine benutzerdefinierten Bootstrap-IPs werden verwendet.</sys:String>
+    <sys:String x:Key="Provider.BootstrapCustom">Eigener Anbieter: Bei einem Hostnamen Bootstrap-IPs unter „Erweiterte Verbindungseinstellungen“ eintragen.</sys:String>
+    <sys:String x:Key="Provider.ToggleHint">Diesen Server für DNS freigeben. Deaktivierte Server werden übersprungen; ihre Position bleibt erhalten. Änderungen zum Übernehmen speichern.</sys:String>
+    <sys:String x:Key="Setup.NoEnabledProvider">Lass mindestens einen Server in der Standardroute aktiviert oder schalte das DNS-Routing aus, bevor du alle Server deaktivierst.</sys:String>
 </ResourceDictionary>

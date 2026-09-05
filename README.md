@@ -4,6 +4,8 @@ BetterDNS is an experimental Windows 11 DNS policy manager with a native GUI, en
 
 ## What is implemented
 
+0.3.1 fixes server enable/disable checkboxes, dark editor frames and scrollbars, tab selection colors, protocol capitalization and generated placeholder labels. Known providers, including personal Control D profiles, now receive bootstrap addresses automatically in the service. Existing profiles and explicit custom IPs are retained. See [0.3.1 verification](docs/VERIFICATION-0.3.1.md).
+
 Version 0.3.0 replaces the configuration-first dashboard with a primary/backup workflow:
 
 1. Open **My DNS / Mein DNS** and choose **Primary DNS / Primärer DNS** and **Backup DNS / Ersatz-DNS** by provider name. Existing additional fallbacks remain under **More backups / Weitere Ersatzanbieter**.
@@ -45,7 +47,7 @@ Provider and network HTTP/3 support can vary. Exact HTTP/3 failures are visible 
 
 ## Install
 
-Download `BetterDNS-Setup-0.3.0-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
+Download `BetterDNS-Setup-0.3.1-win-x64.exe` from the latest successful GitHub Actions artifact. Setup offers German and English. It checks configuration, the GUI control connection and kernel driver readiness before reporting service startup success. CI also tests loopback interception and launches the actual published GUI during the install/repair/uninstall test. Existing resolver profiles and rules are retained on upgrade.
 
 To build the single-file Setup executable locally, install Inno Setup 7 and run:
 
@@ -105,10 +107,12 @@ The service owns `%ProgramData%\BetterDNS\config.json`; the elevated GUI updates
 - a unique ID and display name;
 - one of `Doh3`, `Doq`, `Dot`, or `Doh`;
 - an HTTPS URL for DoH/DoH3, or a host with optional port for DoT/DoQ;
-- one or more bootstrap IP addresses so resolving the encrypted resolver itself never recurses;
+- bootstrap IP addresses for custom hostname-based providers; known providers use automatic bootstrap addresses when the field is empty;
 - a timeout.
 
 Failover treats valid `NXDOMAIN` answers as final. Transport failures, invalid replies, `SERVFAIL`, and `REFUSED` continue to the next resolver.
+
+The server-list checkboxes edit whether a server is enabled. Click Save changes to apply. Disabled servers are skipped without losing their fallback order. While routing is active, the GUI prevents disabling every server in the default route; turn routing off first if that is intended. Bootstrap IPs are connection addresses for the encrypted endpoint, not additional DNS providers in the failover chain. For Control D you can leave the field empty; manual addresses are optional overrides.
 
 ## License
 

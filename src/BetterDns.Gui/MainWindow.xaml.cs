@@ -1,5 +1,4 @@
 using BetterDns.Gui.ViewModels;
-using System.Runtime.InteropServices;
 
 namespace BetterDns.Gui;
 
@@ -25,7 +24,7 @@ public partial class MainWindow : System.Windows.Window
                 System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning,
                 System.Windows.MessageBoxResult.No) != System.Windows.MessageBoxResult.Yes) args.Cancel = true;
         };
-        SourceInitialized += OnSourceInitialized;
+        WindowAppearance.Attach(this);
     }
 
     private async void OnLoaded(object sender, System.Windows.RoutedEventArgs e)
@@ -46,16 +45,4 @@ public partial class MainWindow : System.Windows.Window
         finally { viewModel.IsProviderEditorOpen = false; }
     }
 
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
-        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        var enabled = 1;
-        if (DwmSetWindowAttribute(handle, 20, ref enabled, sizeof(int)) != 0)
-        {
-            _ = DwmSetWindowAttribute(handle, 19, ref enabled, sizeof(int));
-        }
-    }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int valueSize);
 }

@@ -54,7 +54,7 @@ public sealed record UpstreamDefinition
     }
 
     [JsonIgnore]
-    public IReadOnlyList<IPAddress> ParsedBootstrapAddresses => BootstrapAddresses
+    public IReadOnlyList<IPAddress> ParsedBootstrapAddresses => (BootstrapAddresses.Count > 0 ? BootstrapAddresses : KnownResolverBootstrap.ForHost(HostName))
         .Select(value => IPAddress.TryParse(value, out var address) ? address : null)
         .Where(static address => address is not null)
         .Cast<IPAddress>()

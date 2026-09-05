@@ -34,21 +34,13 @@ public static class ProviderValidation
             catch (Exception error) when (error is ArgumentException or FormatException) { return "Provider.EndpointInvalid"; }
         }
         if (provider.BootstrapAddresses.Any(address => !IPAddress.TryParse(address, out _))) return "Provider.BootstrapInvalid";
-        if (provider.BootstrapAddresses.Count == 0 && !IPAddress.TryParse(provider.HostName, out _)) return "Provider.BootstrapRequired";
+        if (provider.ParsedBootstrapAddresses.Count == 0 && !IPAddress.TryParse(provider.HostName, out _)) return "Provider.BootstrapRequired";
         return null;
     }
 
     public static string SuggestedBootstrap(string endpoint)
     {
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)) return string.Empty;
-        // Official provider references: https://docs.controld.com/docs/control-d-ip-ranges
-        // and https://github.com/nextdns/nextdns (resolver/endpoint package).
-        return uri.Host.ToLowerInvariant() switch
-        {
-            "dns.controld.com" => "76.76.2.22, 76.76.10.22",
-            "freedns.controld.com" => "76.76.2.11, 76.76.10.11",
-            "dns.nextdns.io" => "45.90.28.0, 45.90.30.0",
-            _ => string.Join(", ", DefaultConfiguration.Create().Upstreams.FirstOrDefault(provider => provider.HostName == uri.Host)?.BootstrapAddresses ?? [])
-        };
+        return string.Join(", ", KnownResolverBootstrap.ForHost(uri.Host));
     }
 }

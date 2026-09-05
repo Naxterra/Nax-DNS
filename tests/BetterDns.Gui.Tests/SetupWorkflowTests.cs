@@ -9,6 +9,70 @@ namespace BetterDns.Gui.Tests;
 public sealed class SetupWorkflowTests
 {
     [Fact]
+    public async Task Disabled_primary_can_be_saved_and_reenabled_without_losing_its_position()
+    {
+        var client = new FakeClient { Config = DefaultConfiguration.Create() with { Active = true } };
+        using var vm = new MainViewModel(client);
+        await vm.RefreshAsync();
+        vm.PrimaryProvider!.Enabled = false;
+        await vm.SaveAsync();
+        Assert.False(client.Config.Upstreams[0].Enabled);
+        Assert.Equal("hagezi-root", client.Config.Chains[0].UpstreamIds[0]);
+        vm.PrimaryProvider!.Enabled = true;
+        await vm.SaveAsync();
+        Assert.True(client.Config.Upstreams[0].Enabled);
+        Assert.Equal("hagezi-root", client.Config.Chains[0].UpstreamIds[0]);
+    }
+
+    [Fact]
+    public async Task Disabling_all_servers_cannot_break_an_active_default_route()
+    {
+        var client = new FakeClient { Config = DefaultConfiguration.Create() with { Active = true } };
+        using var vm = new MainViewModel(client);
+        await vm.RefreshAsync();
+        foreach (var server in vm.Upstreams) server.Enabled = false;
+        await vm.SaveAsync();
+        Assert.Empty(client.Writes);
+        Assert.True(client.Config.Upstreams[0].Enabled);
+        Assert.Equal(LocalizationManager.Get("Setup.NoEnabledProvider"), vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task All_servers_may_be_disabled_while_off_but_cannot_be_activated()
+    {
+        var client = new FakeClient();
+        using var vm = new MainViewModel(client);
+        await vm.RefreshAsync();
+        foreach (var server in vm.Upstreams) server.Enabled = false;
+        await vm.SaveAsync();
+        Assert.All(client.Config.Upstreams, server => Assert.False(server.Enabled));
+        client.Writes.Clear();
+        await vm.ToggleProtectionAsync();
+        Assert.Empty(client.Writes);
+        Assert.False(client.Config.Active);
+    }
+
+    [Fact]
+    public async Task Existing_Control_D_profile_with_empty_bootstrap_is_usable_from_main_screen()
+    {
+        var client = new FakeClient();
+        using var vm = new MainViewModel(client);
+        await vm.RefreshAsync();
+        var provider = new UpstreamEditor { Name = "My private DNS", Endpoint = "https://dns.controld.com/test-profile" };
+        vm.AcceptProvider(provider, "primary");
+        await vm.ToggleProtectionAsync();
+        Assert.True(client.Config.Active);
+        Assert.Empty(client.Config.Upstreams.Single(server => server.Id == provider.Id).BootstrapAddresses);
+    }
+
+    [Theory]
+    [InlineData(DnsProtocol.Doh3, "DoH3")]
+    [InlineData(DnsProtocol.Doh, "DoH")]
+    [InlineData(DnsProtocol.Dot, "DoT")]
+    [InlineData(DnsProtocol.Doq, "DoQ")]
+    public void Protocol_names_use_correct_capitalization(DnsProtocol protocol, string expected) => Assert.Equal(expected, new UpstreamEditor { Protocol = protocol }.ProtocolDisplayName);
+
+    [Fact]
     public async Task Editing_failover_timing_does_not_reset_unsaved_primary_selection()
     {
         using var vm = new MainViewModel(new FakeClient());

@@ -8,10 +8,10 @@
     <sys:String x:Key="Connection.Version">Service {0}</sys:String>
 
     <sys:String x:Key="Tab.Dashboard">My DNS</sys:String>
-    <sys:String x:Key="Tab.Servers">Providers</sys:String>
+    <sys:String x:Key="Tab.Servers">DNS servers</sys:String>
     <sys:String x:Key="Tab.Failover">Failover</sys:String>
     <sys:String x:Key="Tab.Rules">Rules</sys:String>
-    <sys:String x:Key="Tab.Protection">Protection</sys:String>
+    <sys:String x:Key="Tab.Protection">DNS protection</sys:String>
 
     <sys:String x:Key="Dashboard.ProtectionTitle">DNS protection</sys:String>
     <sys:String x:Key="Dashboard.ResolverHealth">Resolver health</sys:String>
@@ -27,7 +27,7 @@
     <sys:String x:Key="Action.AddRule">Add rule</sys:String>
     <sys:String x:Key="Action.RemoveSelected">Remove selected</sys:String>
 
-    <sys:String x:Key="Column.On">On</sys:String>
+    <sys:String x:Key="Column.On">Enabled</sys:String>
     <sys:String x:Key="Column.Name">Name</sys:String>
     <sys:String x:Key="Column.Resolver">Resolver</sys:String>
     <sys:String x:Key="Column.Ready">Last result</sys:String>
@@ -78,9 +78,9 @@
     <sys:String x:Key="Tab.Advanced">Advanced</sys:String>
     <sys:String x:Key="Setup.Heading">Choose where your DNS goes</sys:String>
     <sys:String x:Key="Setup.Hint">Choose your normal provider and a backup. Save &amp; enable applies these choices and starts DNS routing.</sys:String>
-    <sys:String x:Key="Setup.Primary">Primary DNS</sys:String>
-    <sys:String x:Key="Setup.Backup">Backup DNS</sys:String>
-    <sys:String x:Key="Setup.PrimaryHint">Tried first for ordinary DNS queries.</sys:String>
+    <sys:String x:Key="Setup.Primary">Primary DNS server</sys:String>
+    <sys:String x:Key="Setup.Backup">Fallback DNS server</sys:String>
+    <sys:String x:Key="Setup.PrimaryHint">Tried first when enabled.</sys:String>
     <sys:String x:Key="Setup.BackupHint">Used automatically if the primary fails.</sys:String>
     <sys:String x:Key="Setup.SaveEnable">Save &amp; enable</sys:String>
     <sys:String x:Key="Setup.DriverActive">Kernel interception is active.</sys:String>
@@ -91,12 +91,12 @@
     <sys:String x:Key="Setup.ExtraCount">More backups ({0})</sys:String>
     <sys:String x:Key="Setup.ExtraHint">These providers are tried after the backup above, in the displayed order. Existing fallbacks are kept.</sys:String>
     <sys:String x:Key="Setup.AddBackup">Add to backup order</sys:String>
-    <sys:String x:Key="Setup.NoBackup">Clear backup</sys:String>
+    <sys:String x:Key="Setup.NoBackup">Clear fallback</sys:String>
     <sys:String x:Key="Setup.NoneSelected">None selected</sys:String>
     <sys:String x:Key="Setup.ProviderEnabled">enabled</sys:String>
-    <sys:String x:Key="Setup.ProviderDisabled">disabled — edit this provider first</sys:String>
+    <sys:String x:Key="Setup.ProviderDisabled">disabled — skipped until enabled</sys:String>
     <sys:String x:Key="Setup.UsePrimary">Use as primary</sys:String>
-    <sys:String x:Key="Setup.UseBackup">Use as backup</sys:String>
+    <sys:String x:Key="Setup.UseBackup">Use as fallback</sys:String>
     <sys:String x:Key="Setup.LiveTitle">DNS in use · last default-route response</sys:String>
     <sys:String x:Key="Setup.LiveHint">Shows actual default-route replies, not a connection indicator. Domain rules may use other providers.</sys:String>
     <sys:String x:Key="Setup.RoutingOff">Off — BetterDNS is not handling DNS</sys:String>
@@ -121,29 +121,38 @@
     <sys:String x:Key="Health.Failed">Last attempt failed</sys:String>
     <sys:String x:Key="Health.Untested">Not tested</sys:String>
     <sys:String x:Key="Health.Answered">Answered</sys:String>
-    <sys:String x:Key="Provider.Title">Add or edit a DNS provider</sys:String>
+    <sys:String x:Key="Provider.Title">DNS server settings</sys:String>
     <sys:String x:Key="Provider.Hint">Paste your resolver URL, then choose how to use this provider. Changes remain a draft until you save on the main screen.</sys:String>
-    <sys:String x:Key="Provider.Preset">Provider template</sys:String>
+    <sys:String x:Key="Provider.Preset">Provider preset</sys:String>
     <sys:String x:Key="Provider.Custom">Custom / keep current values</sys:String>
     <sys:String x:Key="Provider.Endpoint">Resolver URL or TLS / QUIC hostname</sys:String>
     <sys:String x:Key="Provider.ProfileHint">Control D and NextDNS: paste the full URL from your account, including your resolver/profile ID. Provider templates use DoH3.</sys:String>
     <sys:String x:Key="Provider.UseAs">Use this provider as</sys:String>
     <sys:String x:Key="Provider.LibraryOnly">Save only — do not change DNS routing</sys:String>
-    <sys:String x:Key="Provider.ConnectionSettings">Connection settings</sys:String>
-    <sys:String x:Key="Provider.BootstrapHint">Known HTTPS providers fill these IPs for you. Custom providers need IPs from their operator; no plaintext DNS lookup is used to discover them.</sys:String>
+    <sys:String x:Key="Provider.ConnectionSettings">Advanced connection settings</sys:String>
+    <sys:String x:Key="Provider.BootstrapHint">Leave empty for automatic addresses on known providers, including Control D. Custom IPs override automatic addresses; they are connection targets, not fallback DNS providers.</sys:String>
     <sys:String x:Key="Provider.Enabled">Provider enabled</sys:String>
     <sys:String x:Key="Provider.Accept">Use these settings</sys:String>
-    <sys:String x:Key="Provider.LibraryTitle">Your saved DNS providers</sys:String>
-    <sys:String x:Key="Provider.LibraryHint">This is your provider library. Select an entry and choose Primary or Backup to use it on the home screen. Adding an entry alone does not activate DNS routing.</sys:String>
+    <sys:String x:Key="Provider.LibraryTitle">Your DNS servers</sys:String>
+    <sys:String x:Key="Provider.LibraryHint">Enable or disable servers directly with the checkboxes. Disabling keeps their fallback position. Primary and fallback selection is on My DNS; Save changes applies your edits.</sys:String>
     <sys:String x:Key="Provider.NameRequired">Enter a provider name.</sys:String>
     <sys:String x:Key="Provider.TimeoutInvalid">Enter a timeout between 250 and 30000 ms.</sys:String>
     <sys:String x:Key="Provider.EndpointInvalid">Enter a valid HTTPS URL, or a TLS / QUIC hostname for that protocol.</sys:String>
     <sys:String x:Key="Provider.ProfileRequired">Paste your full resolver/profile URL, not just the provider hostname.</sys:String>
     <sys:String x:Key="Provider.BootstrapRequired">Add at least one bootstrap IP in the provider editor to avoid recursive DNS queries.</sys:String>
     <sys:String x:Key="Provider.BootstrapInvalid">Bootstrap addresses must be comma-separated IP addresses.</sys:String>
-    <sys:String x:Key="Action.Edit">Edit provider</sys:String>
+    <sys:String x:Key="Action.Edit">Edit server</sys:String>
     <sys:String x:Key="Action.Cancel">Cancel</sys:String>
     <sys:String x:Key="Action.Up">Move up</sys:String>
     <sys:String x:Key="Action.Down">Move down</sys:String>
     <sys:String x:Key="Setup.CloseDraft">You have unsaved changes. Close without applying them?</sys:String>
+    <sys:String x:Key="Server.ControlDFree">Control D — public DNS</sys:String>
+    <sys:String x:Key="Server.ControlD">Control D</sys:String>
+    <sys:String x:Key="Server.NextDNS">NextDNS</sys:String>
+    <sys:String x:Key="Server.NextDNSMissing">NextDNS — profile required</sys:String>
+    <sys:String x:Key="Provider.BootstrapAutomatic">Connection addresses: automatic. No bootstrap IPs need to be entered for this provider.</sys:String>
+    <sys:String x:Key="Provider.BootstrapManual">Connection addresses: using your custom bootstrap IPs.</sys:String>
+    <sys:String x:Key="Provider.BootstrapCustom">Custom provider: enter bootstrap IPs under Advanced connection settings if the endpoint is a hostname.</sys:String>
+    <sys:String x:Key="Provider.ToggleHint">Allow this server to handle DNS. Disabled servers are skipped, without losing their fallback position. Save changes to apply.</sys:String>
+    <sys:String x:Key="Setup.NoEnabledProvider">Keep at least one server enabled in the default route, or turn DNS routing off before disabling them all.</sys:String>
 </ResourceDictionary>

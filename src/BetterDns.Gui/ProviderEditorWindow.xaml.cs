@@ -19,16 +19,13 @@ public partial class ProviderEditorWindow : Window
     public ProviderEditorWindow(UpstreamEditor? existing = null)
     {
         Editor = existing is null ? new() { Endpoint = string.Empty, Name = string.Empty } : UpstreamEditor.From(existing.ToModel());
+        if (existing is not null) Editor.Name = existing.DisplayName;
         UseAs = existing is null ? "primary" : "library";
         InitializeComponent();
+        WindowAppearance.Attach(this);
         DataContext = this;
         PresetBox.ItemsSource = new[] { LocalizationManager.Get("Provider.Custom"), "Control D", "NextDNS", "HaGeZi", "Cloudflare", "Quad9", "Google" };
         PresetBox.SelectedIndex = 0;
-        if (string.IsNullOrWhiteSpace(Editor.BootstrapAddresses)) Editor.BootstrapAddresses = ProviderValidation.SuggestedBootstrap(Editor.Endpoint);
-        Editor.PropertyChanged += (_, args) => {
-            if (args.PropertyName == nameof(Editor.Endpoint) && string.IsNullOrWhiteSpace(Editor.BootstrapAddresses))
-                Editor.BootstrapAddresses = ProviderValidation.SuggestedBootstrap(Editor.Endpoint);
-        };
     }
 
     private void OnPresetChanged(object sender, SelectionChangedEventArgs e)
@@ -47,7 +44,7 @@ public partial class ProviderEditorWindow : Window
             "Google" => "https://dns.google/dns-query",
             _ => string.Empty
         };
-        Editor.BootstrapAddresses = ProviderValidation.SuggestedBootstrap(Editor.Endpoint);
+        Editor.BootstrapAddresses = string.Empty;
     }
 
     private void OnAccept(object sender, RoutedEventArgs e)

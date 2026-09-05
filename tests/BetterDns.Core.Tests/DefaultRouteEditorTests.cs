@@ -35,13 +35,13 @@ public sealed class DefaultRouteEditorTests
     }
 
     [Fact]
-    public void Rejects_empty_duplicate_missing_or_disabled_providers()
+    public void Rejects_empty_duplicate_missing_providers_but_preserves_disabled_positions()
     {
         var config = DefaultConfiguration.Create();
         Assert.Throws<InvalidDataException>(() => DefaultRouteEditor.Apply(config, []));
         Assert.Throws<InvalidDataException>(() => DefaultRouteEditor.Apply(config, ["hagezi-root", "hagezi-root"]));
         Assert.Throws<InvalidDataException>(() => DefaultRouteEditor.Apply(config, ["missing"]));
         config = config with { Upstreams = config.Upstreams.Select(provider => provider with { Enabled = false }).ToArray() };
-        Assert.Throws<InvalidDataException>(() => DefaultRouteEditor.Apply(config, ["hagezi-root"]));
+        Assert.Equal(["hagezi-root"], DefaultRouteEditor.Apply(config, ["hagezi-root"]).Chains[0].UpstreamIds);
     }
 }

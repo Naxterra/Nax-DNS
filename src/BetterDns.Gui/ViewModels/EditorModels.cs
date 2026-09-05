@@ -7,17 +7,31 @@ public sealed class UpstreamEditor : ObservableObject
     private string id = Guid.NewGuid().ToString("N");
     public string Id { get => id; set => Set(ref id, value); }
     private string name = "New resolver";
-    public string Name { get => name; set => Set(ref name, value); }
+    public string Name { get => name; set { if (Set(ref name, value)) Raise(nameof(DisplayName)); } }
     private DnsProtocol protocol = DnsProtocol.Doh3;
-    public DnsProtocol Protocol { get => protocol; set => Set(ref protocol, value); }
+    public DnsProtocol Protocol { get => protocol; set { if (Set(ref protocol, value)) { Raise(nameof(ProtocolDisplayName)); Raise(nameof(BootstrapStatus)); } } }
     private string endpoint = "https://example.net/dns-query";
-    public string Endpoint { get => endpoint; set => Set(ref endpoint, value); }
+    public string Endpoint { get => endpoint; set { if (Set(ref endpoint, value)) { Raise(nameof(DisplayName)); Raise(nameof(BootstrapStatus)); } } }
     private string bootstrapAddresses = string.Empty;
-    public string BootstrapAddresses { get => bootstrapAddresses; set => Set(ref bootstrapAddresses, value); }
+    public string BootstrapAddresses { get => bootstrapAddresses; set { if (Set(ref bootstrapAddresses, value)) Raise(nameof(BootstrapStatus)); } }
     private bool enabled = true;
     public bool Enabled { get => enabled; set => Set(ref enabled, value); }
     private int timeoutMilliseconds = 3500;
     public int TimeoutMilliseconds { get => timeoutMilliseconds; set => Set(ref timeoutMilliseconds, value); }
+
+    public string DisplayName => ProviderNames.Display(Name, Endpoint);
+    public string ProtocolDisplayName => MainViewModel.ProtocolName(Protocol);
+    public string BootstrapStatus
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(BootstrapAddresses)) return Localization.LocalizationManager.Get("Provider.BootstrapManual");
+            try { return Localization.LocalizationManager.Get(KnownResolverBootstrap.ForHost(ToModel().HostName).Count > 0 ? "Provider.BootstrapAutomatic" : "Provider.BootstrapCustom"); }
+            catch (Exception error) when (error is ArgumentException or FormatException) { return Localization.LocalizationManager.Get("Provider.BootstrapCustom"); }
+        }
+    }
+
+    public void RefreshDisplayName() => Raise(nameof(DisplayName));
 
     public static UpstreamEditor From(UpstreamDefinition value) => new()
     {

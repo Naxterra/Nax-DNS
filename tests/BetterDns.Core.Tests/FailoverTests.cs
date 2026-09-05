@@ -8,6 +8,30 @@ namespace BetterDns.Core.Tests;
 public sealed class FailoverTests
 {
     [Fact]
+    public async Task Disabled_primary_is_skipped_without_an_attempt_and_retains_its_place()
+    {
+        var primary = new UpstreamDefinition { Id = "primary", Name = "Primary", Endpoint = "https://primary.invalid/dns-query", Protocol = DnsProtocol.Doh, Enabled = false };
+        var secondary = primary with { Id = "secondary", Name = "Secondary", Enabled = true };
+        var chain = new FailoverChain { Id = "default", Name = "Default", UpstreamIds = ["primary", "secondary"] };
+        var config = new BetterDnsConfiguration { DefaultChainId = "default", Upstreams = [primary, secondary], Chains = [chain] };
+        var transport = new RecordingTransport();
+        using var router = new DnsRouter(new UpstreamHealthTracker(), new QueryLog(), [transport]);
+        var query = DnsWire.CreateQuery("example.com");
+        var response = await router.ResolveAsync(query, config, CancellationToken.None);
+        Assert.True(DnsWire.IsUsableResponse(response));
+        Assert.Equal(["secondary"], transport.Calls);
+        Assert.Equal(["primary", "secondary"], chain.UpstreamIds);
+    }
+
+    private sealed class RecordingTransport : IDnsTransport
+    {
+        public DnsProtocol Protocol => DnsProtocol.Doh;
+        public List<string> Calls { get; } = [];
+        public Task<byte[]> QueryAsync(UpstreamDefinition upstream, ReadOnlyMemory<byte> query, CancellationToken cancellationToken)
+        { Calls.Add(upstream.Id); return Task.FromResult(DnsWire.CreateErrorResponse(query.Span, 0)); }
+    }
+
+    [Fact]
     public async Task Failed_primary_uses_secondary_and_opens_primary_circuit()
     {
         var primary = new UpstreamDefinition
