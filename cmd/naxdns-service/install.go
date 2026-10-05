@@ -18,10 +18,10 @@ import (
 
 const (
 	serviceName  = "NaxDNS"
-	firewallRule = "Nax-DNS TCP DNS proxy"
+	firewallRule = "Nax-DNSManager TCP DNS proxy"
 	runKey       = `Software\Microsoft\Windows\CurrentVersion\Run`
 
-	// Names used before the product was renamed from NaxDNS to Nax-DNS.
+	// Names used before the product was renamed from NaxDNS to Nax-DNSManager.
 	legacyFirewallRule = "NaxDNS TCP DNS proxy"
 	legacyShortcut     = "NaxDNS.lnk"
 )
@@ -29,7 +29,7 @@ const (
 var payload = []string{"naxdns-service.exe", "naxdns.exe", "WinDivert.dll", "WinDivert64.sys"}
 
 func installDir() string {
-	return filepath.Join(os.Getenv("ProgramFiles"), "Nax-DNS")
+	return filepath.Join(os.Getenv("ProgramFiles"), "Nax-DNSManager")
 }
 
 func legacyInstallDir() string {
@@ -112,7 +112,7 @@ func install() error {
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		s, err = m.CreateService(serviceName, svcExe, mgr.Config{
-			DisplayName: "Nax-DNS",
+			DisplayName: "Nax-DNSManager",
 			Description: "Intercepts DNS queries and resolves them over encrypted DNS (DoH, DoH3, DoT, DoQ).",
 			StartType:   mgr.StartAutomatic,
 		})
@@ -127,7 +127,7 @@ func install() error {
 			return fmt.Errorf("read service config: %w", err)
 		}
 		c.BinaryPathName = `"` + svcExe + `"`
-		c.DisplayName = "Nax-DNS"
+		c.DisplayName = "Nax-DNSManager"
 		if err := s.UpdateConfig(c); err != nil {
 			s.Close()
 			return fmt.Errorf("update service config: %w", err)
@@ -158,7 +158,7 @@ func install() error {
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
-	fmt.Println("Nax-DNS installed in", dstDir, "and started.")
+	fmt.Println("Nax-DNSManager installed in", dstDir, "and started.")
 	return nil
 }
 
@@ -196,7 +196,7 @@ func uninstall() error {
 	}
 	exec.Command("taskkill", "/F", "/IM", "naxdns.exe").Run()
 	shortcut("", false)
-	fmt.Println("Nax-DNS service removed. Configuration in ProgramData\\NaxDNS and the files in", installDir(), "were kept.")
+	fmt.Println("Nax-DNSManager service removed. Configuration in ProgramData\\NaxDNS and the files in", installDir(), "were kept.")
 	return nil
 }
 
@@ -209,7 +209,7 @@ func fileExists(path string) bool {
 func shortcut(target string, create bool) {
 	programs := filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs`)
 	os.Remove(filepath.Join(programs, legacyShortcut))
-	link := filepath.Join(programs, "Nax-DNS.lnk")
+	link := filepath.Join(programs, "Nax-DNSManager.lnk")
 	if !create {
 		os.Remove(link)
 		return

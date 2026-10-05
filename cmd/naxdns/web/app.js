@@ -275,7 +275,7 @@ function joinUrl(proto, address) {
 const PROTO_PORT = { doh: 'TCP port 443', doh3: 'UDP port 443', dot: 'TCP port 853', doq: 'UDP port 853', plain: 'UDP port 53' };
 function explainError(proto, error) {
   if (/access permissions|unzulässig|forbidden by its access/i.test(error)) {
-    return `A firewall on this PC blocked the connection (${PROTO_PORT[proto]}) for Nax-DNS.`;
+    return `A firewall on this PC blocked the connection (${PROTO_PORT[proto]}) for Nax-DNSManager.`;
   }
   if (/deadline exceeded|timeout|timed out/i.test(error)) {
     return `No answer on ${PROTO_PORT[proto]}. The server, a VPN or a firewall is not letting this protocol through; try another protocol.`;
@@ -554,9 +554,9 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h2', {}, 'Interception'),
       row('TCP DNS (port 53)', 'Rarely used. Proxy answers it through your servers; Block refuses it; Allow lets it pass unencrypted.',
-        select('tcpMode', { proxy: 'Proxy through Nax-DNS', block: 'Block', allow: 'Allow (not intercepted)' })),
+        select('tcpMode', { proxy: 'Proxy through Nax-DNSManager', block: 'Block', allow: 'Allow (not intercepted)' })),
       row('Intercept queries to local resolvers', 'Also capture DNS sent to 127.0.0.1, e.g. a VPN client\'s built-in DNS proxy.', toggle('interceptLoopback')),
-      row('Keep Windows from switching to its own encrypted DNS', 'Answers resolver discovery (DDR) with "not found" so queries stay on port 53 where Nax-DNS sees them.', toggle('blockDdr')),
+      row('Keep Windows from switching to its own encrypted DNS', 'Answers resolver discovery (DDR) with "not found" so queries stay on port 53 where Nax-DNSManager sees them.', toggle('blockDdr')),
       row('Tell Firefox not to use its own DNS-over-HTTPS', 'Answers Firefox\'s canary domain so it keeps using system DNS.', toggle('firefoxCanary'))),
     h('div', { class: 'card' },
       h('h2', {}, 'Cache'),
@@ -567,7 +567,7 @@ function renderSettings() {
     h('div', { class: 'card' },
       h('h2', {}, 'Advanced'),
       row('Bootstrap resolvers', 'DoH endpoints addressed by IP, used only to find your servers\' addresses.', boot),
-      h('p', { class: 'hint' }, `Nax-DNS ${state?.version || ''}`)),
+      h('p', { class: 'hint' }, `Nax-DNSManager ${state?.version || ''}`)),
   );
 }
 
@@ -594,7 +594,7 @@ function showBanner() {
   b.hidden = !serviceDown;
   if (!serviceDown || b.firstChild) return;
   b.replaceChildren(
-    h('div', { class: 'grow' }, 'The Nax-DNS service is not installed or not running. DNS is not being intercepted.'),
+    h('div', { class: 'grow' }, 'The Nax-DNSManager service is not installed or not running. DNS is not being intercepted.'),
     h('button', { class: 'btn', onclick: async () => {
       try { await api('POST', '/local/install'); toast('Installing… confirm the Windows prompt.'); }
       catch (e) { toast(e.message, true); }

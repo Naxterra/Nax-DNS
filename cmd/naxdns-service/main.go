@@ -1,4 +1,4 @@
-// naxdns-service is the privileged half of Nax-DNS: it intercepts DNS, resolves
+// naxdns-service is the privileged half of Nax-DNSManager: it intercepts DNS, resolves
 // it over encrypted transports and serves the control pipe.
 //
 //	naxdns-service            run as Windows service (started by the SCM)
@@ -94,7 +94,7 @@ func run(ctx context.Context) error {
 	}
 	defer engine.Close()
 	_, detail := engine.Interceptor.Status()
-	log.Printf("Nax-DNS %s started: %s", service.Version, detail)
+	log.Printf("Nax-DNSManager %s started: %s", service.Version, detail)
 	return engine.Serve(ctx)
 }
 

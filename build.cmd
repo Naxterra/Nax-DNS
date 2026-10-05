@@ -1,5 +1,5 @@
 @echo off
-rem Builds Nax-DNS into .\dist (service, tray app and the WinDivert driver files).
+rem Builds Nax-DNSManager into .\dist (service, tray app and the WinDivert driver files).
 setlocal
 cd /d "%~dp0"
 if not exist dist\.gotmp mkdir dist\.gotmp
