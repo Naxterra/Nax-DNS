@@ -1,4 +1,4 @@
-// naxdns is the desktop half of Nax-DNS: a tray icon and a local web UI that
+// naxdns is the desktop half of Nax-DNSManager: a tray icon and a local web UI that
 // talks to the service over its control pipe. It runs as the signed-in user.
 package main
 
@@ -78,7 +78,7 @@ func main() {
 
 func fatal(err error) {
 	text, _ := windows.UTF16PtrFromString(err.Error())
-	title, _ := windows.UTF16PtrFromString("Nax-DNS")
+	title, _ := windows.UTF16PtrFromString("Nax-DNSManager")
 	windows.MessageBox(0, text, title, windows.MB_ICONERROR)
 	os.Exit(1)
 }
@@ -92,7 +92,7 @@ func (a *app) handler(host string) http.Handler {
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"error":"The Nax-DNS service is not running.","serviceDown":true}`))
+			w.Write([]byte(`{"error":"The Nax-DNSManager service is not running.","serviceDown":true}`))
 		},
 	}
 	mux := http.NewServeMux()
@@ -123,7 +123,7 @@ func (a *app) handler(host string) http.Handler {
 		}
 		c, err := r.Cookie("naxdns")
 		if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(a.token)) != 1 {
-			http.Error(w, "Open Nax-DNS from its tray icon.", http.StatusForbidden)
+			http.Error(w, "Open Nax-DNSManager from its tray icon.", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
@@ -152,10 +152,10 @@ func (a *app) setActive(active bool) {
 
 func (a *app) trayReady() {
 	systray.SetIcon(icon(colorOff))
-	systray.SetTitle("Nax-DNS")
-	systray.SetTooltip("Nax-DNS")
+	systray.SetTitle("Nax-DNSManager")
+	systray.SetTooltip("Nax-DNSManager")
 	systray.SetOnTapped(func() { openWindow(a.url) })
-	open := systray.AddMenuItem("Open Nax-DNS", "")
+	open := systray.AddMenuItem("Open Nax-DNSManager", "")
 	toggle := systray.AddMenuItemCheckbox("Protection", "", false)
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit tray icon", "DNS protection keeps running in the service")
@@ -173,7 +173,7 @@ func (a *app) trayReady() {
 		resp, err := a.client.Get("http://naxdns/api/state")
 		if err != nil {
 			systray.SetIcon(icon(colorOff))
-			systray.SetTooltip("Nax-DNS: service not running")
+			systray.SetTooltip("Nax-DNSManager: service not running")
 			toggle.Disable()
 			return
 		}
@@ -189,15 +189,15 @@ func (a *app) trayReady() {
 		case !st.Intercepting:
 			toggle.Uncheck()
 			systray.SetIcon(icon(colorOff))
-			systray.SetTooltip("Nax-DNS: off")
+			systray.SetTooltip("Nax-DNSManager: off")
 		case !healthy:
 			toggle.Check()
 			systray.SetIcon(icon(colorWarn))
-			systray.SetTooltip("Nax-DNS: no DNS server reachable")
+			systray.SetTooltip("Nax-DNSManager: no DNS server reachable")
 		default:
 			toggle.Check()
 			systray.SetIcon(icon(colorOn))
-			systray.SetTooltip("Nax-DNS: " + st.Detail)
+			systray.SetTooltip("Nax-DNSManager: " + st.Detail)
 		}
 	}
 	refresh()
