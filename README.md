@@ -1,4 +1,4 @@
-# NaxDNS
+# Nax-DNS
 
 A system-wide DNS manager for Windows 11 in the spirit of YogaDNS. It intercepts
 every plain DNS query on the PC — including queries applications send to a
@@ -48,10 +48,10 @@ build.cmd
 dist\naxdns-service.exe install      (elevated terminal)
 ```
 
-`install` copies the files to `%ProgramFiles%\NaxDNS`, registers the `NaxDNS`
+`install` copies the files to `%ProgramFiles%\Nax-DNS`, registers the `NaxDNS`
 service (automatic start, restart on failure), adds a firewall rule for the
 TCP proxy, a Start menu entry and tray autostart. Protection starts **off**;
-open NaxDNS, add your servers and turn it on. `uninstall` reverses this and
+open Nax-DNS, add your servers and turn it on. `uninstall` reverses this and
 keeps the configuration in `%ProgramData%\NaxDNS`.
 
 Other commands: `naxdns-service test [url…]` measures servers from the current
@@ -74,7 +74,7 @@ DoQ uses UDP/853 and is usually unaffected.
 
 * Applications with their own encrypted DNS (a browser's "secure DNS" set to a
   custom provider) do not use port 53 and cannot be seen without breaking TLS.
-  NaxDNS answers Windows' resolver discovery and Firefox's canary domain so
+  Nax-DNS answers Windows' resolver discovery and Firefox's canary domain so
   the defaults stay on system DNS.
 * A VPN firewall that blocks everything until the tunnel is up also blocks the
   encrypted servers; queries then use the passthrough fallback.

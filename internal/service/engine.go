@@ -15,7 +15,7 @@ import (
 )
 
 // Version is shown in the UI.
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 type Engine struct {
 	mu   sync.Mutex
