@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NaxDNS</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo"></span>NaxDNS</div>
+  <nav id="nav">
+    <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="servers">Servers</button>
+    <button data-tab="rules">Rules</button>
+    <button data-tab="activity">Activity</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <label class="switch" title="Turn DNS protection on or off">
+    <input type="checkbox" id="power"><span></span>
+  </label>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main>
+  <section id="overview"></section>
+  <section id="servers" hidden></section>
+  <section id="rules" hidden></section>
+  <section id="activity" hidden></section>
+  <section id="settings" hidden></section>
+</main>
+
+<dialog id="dialog"></dialog>
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
