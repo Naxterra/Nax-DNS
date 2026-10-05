@@ -62,7 +62,7 @@ func openInBrowser(u string) {
 	windows.ShellExecute(0, verb, target, nil, nil, windows.SW_SHOWNORMAL)
 }
 
-// runWindow is the body of "naxdns.exe --window <url>": a native window that
+// runWindow is the body of "Nax-DNSManager.exe --window <url>": a native window that
 // renders the UI with the WebView2 runtime that ships with Windows 11.
 func runWindow(u string) {
 	runtime.LockOSThread()
