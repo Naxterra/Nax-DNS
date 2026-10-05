@@ -27,9 +27,10 @@ application ──UDP/TCP 53──▶ any DNS server (router, VPN DNS, 127.0.0.1
   server immediately; silence does so after the hedge delay (1.5 s). After
   three consecutive failures a server is skipped and re-checked in the
   background until it answers again.
-* **When nothing is reachable** (VPN still connecting, captive portal), the
-  original query is released to the server it was addressed to, so the PC
-  keeps working. Switch to strict mode in Settings to fail instead.
+* **No other DNS, ever (default).** When no encrypted server is reachable
+  the query fails rather than leaving unencrypted; expired cache entries are
+  still served. Settings offers a fallback to the original DNS server for
+  setups where a VPN client must resolve names before any server is reachable.
 * **Local names stay local.** Single-label names, `.lan`/`.local`-style
   suffixes and private reverse lookups are answered with NXDOMAIN by default
   instead of being forwarded anywhere. Change the rule's action to "original
