@@ -104,7 +104,7 @@ func Default() *Config {
 		}},
 		Settings: Settings{
 			TimeoutMs: 3000, HedgeMs: 1500, FailThreshold: 3, CooldownSec: 15,
-			OnFailure: FailPassthrough,
+			OnFailure: FailServfail,
 			Cache:     true, CacheMinTTL: 0, CacheMaxTTL: 3600,
 			InterceptLoopback: true, TCPMode: TCPProxy,
 			BlockDDR: true, FirefoxCanary: true,
