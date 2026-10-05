@@ -105,6 +105,7 @@ func (a *app) handler(host string) http.Handler {
 		}
 		w.Write([]byte(`{"ok":true}`))
 	})
+	mux.HandleFunc("/local/lang", handleLang)
 	mux.Handle("/", files)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,13 +156,21 @@ func (a *app) trayReady() {
 	systray.SetTitle("Nax-DNSManager")
 	systray.SetTooltip("Nax-DNSManager")
 	systray.SetOnTapped(func() { openWindow(a.url) })
-	open := systray.AddMenuItem("Open Nax-DNSManager", "")
-	toggle := systray.AddMenuItemCheckbox("Protection", "", false)
+	open := systray.AddMenuItem(tr("Open Nax-DNSManager"), "")
+	toggle := systray.AddMenuItemCheckbox(tr("Protection"), "", false)
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("Quit tray icon", "DNS protection keeps running in the service")
+	quit := systray.AddMenuItem(tr("Quit tray icon"), "")
 
 	active := false
+	shown := lang()
 	refresh := func() {
+		// The language can be changed in the window while the tray runs.
+		if l := lang(); l != shown {
+			shown = l
+			open.SetTitle(tr("Open Nax-DNSManager"))
+			toggle.SetTitle(tr("Protection"))
+			quit.SetTitle(tr("Quit tray icon"))
+		}
 		var st struct {
 			Active       bool   `json:"active"`
 			Intercepting bool   `json:"intercepting"`
@@ -173,7 +182,7 @@ func (a *app) trayReady() {
 		resp, err := a.client.Get("http://naxdns/api/state")
 		if err != nil {
 			systray.SetIcon(icon(colorOff))
-			systray.SetTooltip("Nax-DNSManager: service not running")
+			systray.SetTooltip(tr("Nax-DNSManager: service not running"))
 			toggle.Disable()
 			return
 		}
@@ -189,15 +198,15 @@ func (a *app) trayReady() {
 		case !st.Intercepting:
 			toggle.Uncheck()
 			systray.SetIcon(icon(colorOff))
-			systray.SetTooltip("Nax-DNSManager: off")
+			systray.SetTooltip(tr("Nax-DNSManager: off"))
 		case !healthy:
 			toggle.Check()
 			systray.SetIcon(icon(colorWarn))
-			systray.SetTooltip("Nax-DNSManager: no DNS server reachable")
+			systray.SetTooltip(tr("Nax-DNSManager: no DNS server reachable"))
 		default:
 			toggle.Check()
 			systray.SetIcon(icon(colorOn))
-			systray.SetTooltip("Nax-DNSManager: " + st.Detail)
+			systray.SetTooltip("Nax-DNSManager: " + tr(st.Detail))
 		}
 	}
 	refresh()
