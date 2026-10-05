@@ -24,9 +24,20 @@ const (
 	// Names used before the product was renamed from NaxDNS to Nax-DNSManager.
 	legacyFirewallRule = "NaxDNS TCP DNS proxy"
 	legacyShortcut     = "NaxDNS.lnk"
+	legacyGuiExe       = "naxdns.exe"
+
+	serviceExe = "Nax-DNSService.exe"
+	guiExeName = "Nax-DNSManager.exe"
 )
 
-var payload = []string{"naxdns-service.exe", "naxdns.exe", "WinDivert.dll", "WinDivert64.sys"}
+// stopTray ends the tray app, which keeps its exe locked while it runs.
+func stopTray() {
+	for _, name := range []string{guiExeName, legacyGuiExe} {
+		exec.Command("taskkill", "/F", "/IM", name).Run()
+	}
+}
+
+var payload = []string{serviceExe, guiExeName, "WinDivert.dll", "WinDivert64.sys"}
 
 func installDir() string {
 	return filepath.Join(os.Getenv("ProgramFiles"), "Nax-DNSManager")
@@ -93,8 +104,7 @@ func install() error {
 	stopService(m)
 
 	if !strings.EqualFold(srcDir, dstDir) {
-		// The tray app keeps naxdns.exe locked while it runs.
-		exec.Command("taskkill", "/F", "/IM", "naxdns.exe").Run()
+		stopTray()
 		if err := os.MkdirAll(dstDir, 0o755); err != nil {
 			return err
 		}
@@ -106,8 +116,8 @@ func install() error {
 			}
 		}
 	}
-	svcExe := filepath.Join(dstDir, "naxdns-service.exe")
-	guiExe := filepath.Join(dstDir, "naxdns.exe")
+	svcExe := filepath.Join(dstDir, serviceExe)
+	guiExe := filepath.Join(dstDir, guiExeName)
 
 	s, err := m.OpenService(serviceName)
 	if err != nil {
@@ -194,7 +204,7 @@ func uninstall() error {
 		k.DeleteValue(serviceName)
 		k.Close()
 	}
-	exec.Command("taskkill", "/F", "/IM", "naxdns.exe").Run()
+	stopTray()
 	shortcut("", false)
 	fmt.Println("Nax-DNSManager service removed. Configuration in ProgramData\\NaxDNS and the files in", installDir(), "were kept.")
 	return nil

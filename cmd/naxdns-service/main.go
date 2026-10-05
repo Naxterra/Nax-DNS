@@ -1,11 +1,11 @@
-// naxdns-service is the privileged half of Nax-DNSManager: it intercepts DNS, resolves
+// Nax-DNSService is the privileged half of Nax-DNSManager: it intercepts DNS, resolves
 // it over encrypted transports and serves the control pipe.
 //
-//	naxdns-service            run as Windows service (started by the SCM)
-//	naxdns-service run        run in the foreground (elevated console)
-//	naxdns-service install    copy to Program Files, register and start
-//	naxdns-service uninstall  stop and remove
-//	naxdns-service test [url...]  measure servers from this network
+//	Nax-DNSService            run as Windows service (started by the SCM)
+//	Nax-DNSService run        run in the foreground (elevated console)
+//	Nax-DNSService install    copy to Program Files, register and start
+//	Nax-DNSService uninstall  stop and remove
+//	Nax-DNSService test [url...]  measure servers from this network
 package main
 
 import (
@@ -58,7 +58,7 @@ func main() {
 	case "test":
 		test(os.Args[2:])
 	default:
-		fmt.Println("usage: naxdns-service run | install | uninstall | test [url...]")
+		fmt.Println("usage: Nax-DNSService run | install | uninstall | test [url...]")
 		os.Exit(2)
 	}
 }

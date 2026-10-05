@@ -131,14 +131,14 @@ func (a *app) handler(host string) http.Handler {
 	})
 }
 
-// elevate runs naxdns-service.exe with a UAC prompt.
+// elevate runs Nax-DNSService.exe with a UAC prompt.
 func elevate(args string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	verb, _ := windows.UTF16PtrFromString("runas")
-	file, _ := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(exe), "naxdns-service.exe"))
+	file, _ := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(exe), "Nax-DNSService.exe"))
 	params, _ := windows.UTF16PtrFromString(args)
 	return windows.ShellExecute(0, verb, file, params, nil, windows.SW_HIDE)
 }

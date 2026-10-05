@@ -13,7 +13,7 @@ application ──UDP/TCP 53──▶ any DNS server (router, VPN DNS, 127.0.0.1
        WinDivert (kernel, network layer — sees the packet before it
                  │           enters a VPN tunnel)
                  ▼
-        naxdns-service  ── built-ins ─ rules ─ cache ─ server chain
+        Nax-DNSService  ── built-ins ─ rules ─ cache ─ server chain
                  │                                   (DoH · DoH3 · DoT · DoQ)
                  ▼
    reply injected as if it came from the server the application asked
@@ -45,7 +45,7 @@ Requires Go 1.27+. WinDivert 2.2.2 (signed driver) is in `third_party/`.
 
 ```
 build.cmd
-dist\naxdns-service.exe install      (elevated terminal)
+dist\Nax-DNSService.exe install      (elevated terminal)
 ```
 
 `install` copies the files to `%ProgramFiles%\Nax-DNSManager`, registers the `NaxDNS`
@@ -54,8 +54,8 @@ TCP proxy, a Start menu entry and tray autostart. Protection starts **off**;
 open Nax-DNSManager, add your servers and turn it on. `uninstall` reverses this and
 keeps the configuration in `%ProgramData%\NaxDNS`.
 
-Other commands: `naxdns-service test [url…]` measures servers from the current
-network; `naxdns-service run` runs in the foreground of an elevated console.
+Other commands: `Nax-DNSService test [url…]` measures servers from the current
+network; `Nax-DNSService run` runs in the foreground of an elevated console.
 
 ## Server URLs
 
