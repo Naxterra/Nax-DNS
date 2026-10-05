@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	windowTitle = "NaxDNS"
+	windowTitle = "Nax-DNS"
 	windowClass = "webview" // class registered by go-webview2
 )
 
@@ -44,7 +44,7 @@ func closeWindow() {
 	}
 }
 
-// openWindow shows the NaxDNS window. It lives in its own process so closing
+// openWindow shows the Nax-DNS window. It lives in its own process so closing
 // it leaves the tray icon running.
 func openWindow(u string) {
 	exe, err := os.Executable()

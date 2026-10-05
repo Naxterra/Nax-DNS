@@ -17,7 +17,7 @@ var (
 
 const iconSize = 64
 
-// iconPNG draws the NaxDNS mark — a ring with a solid core — in the given colour.
+// iconPNG draws the Nax-DNS mark — a ring with a solid core — in the given colour.
 func iconPNG(c color.RGBA) []byte {
 	const size = iconSize
 	img := image.NewRGBA(image.Rect(0, 0, size, size))

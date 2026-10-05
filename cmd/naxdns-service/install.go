@@ -18,13 +18,21 @@ import (
 
 const (
 	serviceName  = "NaxDNS"
-	firewallRule = "NaxDNS TCP DNS proxy"
+	firewallRule = "Nax-DNS TCP DNS proxy"
 	runKey       = `Software\Microsoft\Windows\CurrentVersion\Run`
+
+	// Names used before the product was renamed from NaxDNS to Nax-DNS.
+	legacyFirewallRule = "NaxDNS TCP DNS proxy"
+	legacyShortcut     = "NaxDNS.lnk"
 )
 
 var payload = []string{"naxdns-service.exe", "naxdns.exe", "WinDivert.dll", "WinDivert64.sys"}
 
 func installDir() string {
+	return filepath.Join(os.Getenv("ProgramFiles"), "Nax-DNS")
+}
+
+func legacyInstallDir() string {
 	return filepath.Join(os.Getenv("ProgramFiles"), "NaxDNS")
 }
 
@@ -104,12 +112,25 @@ func install() error {
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		s, err = m.CreateService(serviceName, svcExe, mgr.Config{
-			DisplayName: "NaxDNS",
+			DisplayName: "Nax-DNS",
 			Description: "Intercepts DNS queries and resolves them over encrypted DNS (DoH, DoH3, DoT, DoQ).",
 			StartType:   mgr.StartAutomatic,
 		})
 		if err != nil {
 			return fmt.Errorf("create service: %w", err)
+		}
+	} else {
+		// An existing service may still point at the pre-rename folder.
+		c, err := s.Config()
+		if err != nil {
+			s.Close()
+			return fmt.Errorf("read service config: %w", err)
+		}
+		c.BinaryPathName = `"` + svcExe + `"`
+		c.DisplayName = "Nax-DNS"
+		if err := s.UpdateConfig(c); err != nil {
+			s.Close()
+			return fmt.Errorf("update service config: %w", err)
 		}
 	}
 	defer s.Close()
@@ -121,6 +142,7 @@ func install() error {
 
 	// Reflected TCP/53 connections arrive at the service as inbound connections.
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+firewallRule).Run()
+	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+legacyFirewallRule).Run()
 	if out, err := exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+firewallRule,
 		"dir=in", "action=allow", "protocol=TCP", "program="+svcExe, "profile=any").CombinedOutput(); err != nil {
 		fmt.Printf("warning: firewall rule not added (%v): %s\n", err, out)
@@ -131,12 +153,25 @@ func install() error {
 		k.Close()
 	}
 	shortcut(guiExe, true)
+	removeLegacyInstall(dstDir)
 
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
-	fmt.Println("NaxDNS installed in", dstDir, "and started.")
+	fmt.Println("Nax-DNS installed in", dstDir, "and started.")
 	return nil
+}
+
+// removeLegacyInstall deletes the pre-rename program folder once the service
+// runs from dstDir. A WinDivert64.sys that is still loaded stays until reboot.
+func removeLegacyInstall(dstDir string) {
+	old := legacyInstallDir()
+	if strings.EqualFold(old, dstDir) || !fileExists(old) {
+		return
+	}
+	if err := os.RemoveAll(old); err != nil {
+		fmt.Printf("warning: %s not fully removed (%v); delete it after a reboot\n", old, err)
+	}
 }
 
 func uninstall() error {
@@ -154,13 +189,14 @@ func uninstall() error {
 		s.Close()
 	}
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+firewallRule).Run()
+	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+legacyFirewallRule).Run()
 	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, runKey, registry.SET_VALUE); err == nil {
 		k.DeleteValue(serviceName)
 		k.Close()
 	}
 	exec.Command("taskkill", "/F", "/IM", "naxdns.exe").Run()
 	shortcut("", false)
-	fmt.Println("NaxDNS service removed. Configuration in ProgramData\\NaxDNS and the files in", installDir(), "were kept.")
+	fmt.Println("Nax-DNS service removed. Configuration in ProgramData\\NaxDNS and the files in", installDir(), "were kept.")
 	return nil
 }
 
@@ -171,7 +207,9 @@ func fileExists(path string) bool {
 
 // shortcut creates or removes the Start menu entry.
 func shortcut(target string, create bool) {
-	link := filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs\NaxDNS.lnk`)
+	programs := filepath.Join(os.Getenv("ProgramData"), `Microsoft\Windows\Start Menu\Programs`)
+	os.Remove(filepath.Join(programs, legacyShortcut))
+	link := filepath.Join(programs, "Nax-DNS.lnk")
 	if !create {
 		os.Remove(link)
 		return

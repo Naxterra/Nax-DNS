@@ -1,4 +1,4 @@
-// Package config holds the persisted NaxDNS configuration.
+// Package config holds the persisted Nax-DNS configuration.
 package config
 
 import (
