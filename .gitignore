@@ -1,8 +1,8 @@
-bin/
-obj/
-.vs/
-*.user
-*.suo
-artifacts/
-TestResults/
-publish/
+dist/
+third_party/windivert/wd.zip
+.devdata/
+# WinDivert: only the license and the two x64 runtime files are needed
+third_party/windivert/WinDivert-2.2.2-A/x86/
+third_party/windivert/WinDivert-2.2.2-A/doc/
+third_party/windivert/WinDivert-2.2.2-A/x64/*.exe
+third_party/windivert/WinDivert-2.2.2-A/x64/*.lib
