@@ -67,6 +67,7 @@ let entries = [];      // query log, oldest first
 let logSeq = 0;
 let logPaused = false;
 let logFilter = '';
+let logOutcome = 'all';
 let tab = 'overview';
 let serviceDown = false;
 
@@ -475,6 +476,32 @@ function ruleDialog(existing, presetDomain) {
 
 const ACTION_LABEL = { resolved: 'Resolved', cached: 'Cached', stale: 'Cached (stale)', blocked: 'Blocked', passthrough: 'Original DNS', failed: 'Failed' };
 
+// Outcome groups for the log filter. Providers such as Control D and NextDNS
+// report a blocked domain by answering 0.0.0.0 / ::, so that is "blocked by
+// server"; a block by one of our own rules is "blocked by rule".
+const OUTCOMES = {
+  all: ['All', ''],
+  resolved: ['Resolved', 'Answered by your DNS server.'],
+  cached: ['From cache', 'Answered from the local cache.'],
+  filtered: ['Blocked by server', 'Your DNS provider blocked it (answered 0.0.0.0 or ::).'],
+  blocked: ['Blocked by rule', 'Blocked by a rule in Nax-DNSManager.'],
+  nxdomain: ['Not found', 'The domain does not exist (NXDOMAIN). Some providers also block this way.'],
+  refused: ['Refused', 'The DNS server refused to answer (REFUSED).'],
+  failed: ['Failed', 'No server could answer (SERVFAIL or no response).'],
+  passthrough: ['Original DNS', 'Handed to the DNS server the application had asked.'],
+};
+const isSinkhole = answer => !!answer && answer.split(', ').every(a => a === '0.0.0.0' || a === '::');
+function outcome(e) {
+  if (e.action === 'blocked') return 'blocked';
+  if (e.action === 'failed' || e.rcode === 'SERVFAIL') return 'failed';
+  if (e.action === 'passthrough') return 'passthrough';
+  if (e.rcode === 'REFUSED') return 'refused';
+  if (isSinkhole(e.answer)) return 'filtered';
+  if (e.rcode === 'NXDOMAIN') return 'nxdomain';
+  if (e.action === 'cached' || e.action === 'stale') return 'cached';
+  return 'resolved';
+}
+
 function renderActivity() {
   const root = $('#activity');
   if (!root.firstChild) {
@@ -489,13 +516,19 @@ function renderActivity() {
     lookup.onkeydown = e => { if (e.key === 'Enter') doLookup(); };
     root.append(
       h('div', { class: 'bar' },
-        h('input', { type: 'text', placeholder: T('Filter by domain, server or result…'), style: 'width:300px', oninput: e => { logFilter = e.target.value.toLowerCase(); drawLog(); } }),
+        h('input', { type: 'text', placeholder: T('Filter by domain, server or result…'), style: 'width:300px', value: logFilter, oninput: e => { logFilter = e.target.value.toLowerCase(); drawLog(); } }),
         h('span', { class: 'grow' }),
         lookup, h('button', { class: 'btn', onclick: doLookup }, T('Look up')),
         h('button', { class: 'btn', id: 'pause', onclick: e => { logPaused = !logPaused; e.target.textContent = logPaused ? T('Resume') : T('Pause'); drawLog(); } }, logPaused ? T('Resume') : T('Pause')),
         h('button', { class: 'btn', onclick: () => { entries = []; drawLog(); } }, T('Clear'))),
+      h('div', { class: 'chips', id: 'chips' },
+        Object.entries(OUTCOMES).map(([k, [label, hint]]) =>
+          h('button', { class: 'chip' + (k === logOutcome ? ' on' : ''), 'data-outcome': k, title: T(hint),
+            onclick: () => { logOutcome = k; drawLog.force = true; drawLog(); drawLog.force = false; } },
+            k === 'all' ? null : h('span', { class: 'swatch ' + k }), T(label), h('span', { class: 'count' }, '0')))),
       h('div', { class: 'tablewrap' },
         h('table', {},
+          h('colgroup', {}, ['86px', '28%', '64px', '160px', '15%', '', '78px'].map(w => h('col', w ? { style: 'width:' + w } : {}))),
           h('thead', {}, h('tr', {}, ['Time', 'Domain', 'Type', 'Result', 'Server', 'Answer', 'Duration'].map((t, i) => h('th', i === 6 ? { style: 'text-align:right' } : {}, T(t))))),
           h('tbody', { id: 'logbody' }))),
       h('p', { class: 'hint' }, T('Click a row to create a rule for that domain.')));
@@ -505,20 +538,32 @@ function renderActivity() {
 
 function drawLog() {
   const body = $('#logbody');
-  if (!body || logPaused && body.firstChild) return;
+  if (!body) return;
+  if (logPaused && body.firstChild && !drawLog.force) return;
   const rows = [];
-  for (let i = entries.length - 1; i >= 0 && rows.length < 400; i--) {
+  const counts = Object.fromEntries(Object.keys(OUTCOMES).map(k => [k, 0]));
+  for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
-    if (logFilter && !`${e.name} ${e.server} ${e.action} ${e.answer} ${e.rule}`.toLowerCase().includes(logFilter)) continue;
+    if (logFilter && !`${e.name} ${e.server} ${e.action} ${e.answer} ${e.rule} ${e.rcode}`.toLowerCase().includes(logFilter)) continue;
+    const kind = outcome(e);
+    counts.all++;
+    counts[kind]++;
+    if (rows.length >= 400 || (logOutcome !== 'all' && kind !== logOutcome)) continue;
     const via = e.server ? `${e.server}` : e.rule ? T('Rule: {0}', T(e.rule)) : e.action === 'passthrough' ? e.dest : '';
+    const answer = e.answer || (e.rcode !== 'NOERROR' ? e.rcode : '');
+    const fromCache = (e.action === 'cached' || e.action === 'stale') && kind !== 'cached';
     rows.push(h('tr', { title: e.detail || '', onclick: () => ruleDialog(null, e.name) },
       h('td', { class: 't' }, new Date(e.time).toLocaleTimeString()),
-      h('td', {}, e.name),
+      h('td', { title: e.name }, e.name),
       h('td', { class: 't' }, e.type),
-      h('td', {}, h('span', { class: 'badge ' + e.action }, T(ACTION_LABEL[e.action] || e.action))),
-      h('td', {}, via),
-      h('td', { class: 't' }, e.answer || (e.rcode !== 'NOERROR' ? e.rcode : '')),
+      h('td', {}, h('span', { class: 'badge ' + kind }, T(OUTCOMES[kind][0])), fromCache ? h('span', { class: 'from-cache' }, T('Cached')) : null),
+      h('td', { title: via }, via),
+      h('td', { class: 't', title: answer }, answer),
       h('td', { class: 'ms' }, fmtMs(e.ms))));
+  }
+  for (const chip of document.querySelectorAll('#chips .chip')) {
+    chip.classList.toggle('on', chip.dataset.outcome === logOutcome);
+    chip.lastChild.textContent = counts[chip.dataset.outcome];
   }
   body.replaceChildren(...(rows.length ? rows : [h('tr', {}, h('td', { colspan: 7, class: 'empty' }, T('No queries yet.')))]));
 }
@@ -588,7 +633,8 @@ function render() {
   $('#power').checked = cfg.active;
   const enabled = cfg.upstreams.filter(u => u.enabled);
   const anyHealthy = enabled.some(u => serverState(u.id)?.healthy);
-  document.body.className = state?.intercepting ? (anyHealthy ? 'active' : 'degraded') : '';
+  document.body.classList.toggle('active', !!state?.intercepting && anyHealthy);
+  document.body.classList.toggle('degraded', !!state?.intercepting && !anyHealthy);
   // Do not rebuild a form the user is typing in.
   if ($('#dialog').open) return;
   const active = document.activeElement;
@@ -644,6 +690,7 @@ $('#nav').addEventListener('click', e => {
   tab = t;
   for (const b of $('#nav').children) b.classList.toggle('on', b === e.target);
   for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== t;
+  document.body.classList.toggle('log', t === 'activity');
   document.activeElement.blur();
   render();
 });
