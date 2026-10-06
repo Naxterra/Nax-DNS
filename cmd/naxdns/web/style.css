@@ -5,8 +5,10 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
-header { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden; }
+header { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; z-index: 5; }
 .brand { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 10px; }
 .logo { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--dim); position: relative; }
 .logo::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--dim); }
@@ -16,7 +18,14 @@ nav { display: flex; gap: 4px; flex: 1; }
 nav button { background: none; border: 0; color: var(--dim); padding: 8px 14px; border-radius: 8px; font: inherit; cursor: pointer; }
 nav button:hover { color: var(--text); background: var(--panel2); }
 nav button.on { color: var(--text); background: var(--panel2); font-weight: 600; }
-main { max-width: 1120px; margin: 0 auto; padding: 24px; }
+/* The page itself never scrolls: main scrolls, and the activity log fills
+   the remaining height with its own scrolling table. */
+#scroll { flex: 1; min-height: 0; overflow-y: auto; }
+main { min-height: 100%; padding: 24px; display: flex; flex-direction: column; }
+main > section { flex: none; }
+#activity { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.log #scroll { overflow: hidden; }
+body.log main { height: 100%; }
 h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
 p.hint, .hint { color: var(--dim); margin: 4px 0 0; font-size: 13px; }
 
@@ -57,6 +66,10 @@ p.hint, .hint { color: var(--dim); margin: 4px 0 0; font-size: 13px; }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--dim); border: 1px solid var(--line); white-space: nowrap; }
 .badge.resolved { color: var(--ok); } .badge.cached, .badge.stale { color: var(--accent); }
 .badge.blocked { color: var(--block); } .badge.passthrough { color: var(--warn); } .badge.failed { color: var(--bad); }
+.badge.filtered { color: var(--block); } .badge.refused { color: #fb923c; } .badge.nxdomain { color: var(--dim); }
+.swatch.resolved { background: var(--ok); } .swatch.cached { background: var(--accent); }
+.swatch.blocked, .swatch.filtered { background: var(--block); } .swatch.passthrough { background: var(--warn); }
+.swatch.failed { background: var(--bad); } .swatch.refused { background: #fb923c; }
 
 button.btn, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; font: inherit; cursor: pointer; }
 .btn:hover { border-color: var(--dim); }
@@ -64,7 +77,7 @@ button.btn, .btn { background: var(--panel2); color: var(--text); border: 1px so
 .btn.danger { color: var(--bad); }
 .btn.icon { padding: 4px 9px; }
 .btn:disabled { opacity: .4; cursor: default; }
-.bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
 .bar .grow { flex: 1; }
 
 input[type=text], input[type=number], select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%; }
@@ -74,13 +87,21 @@ label.field { display: block; margin-bottom: 14px; }
 label.field > span { display: block; font-size: 13px; color: var(--dim); margin-bottom: 5px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 th { text-align: left; color: var(--dim); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
-td { padding: 6px 10px; border-bottom: 1px solid #222838; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+td { padding: 6px 10px; border-bottom: 1px solid #222838; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 td.t, td.ms { color: var(--dim); font-variant-numeric: tabular-nums; }
 td.ms { text-align: right; }
 tbody tr:hover { background: var(--panel2); cursor: pointer; }
-.tablewrap { max-height: calc(100vh - 230px); overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.tablewrap { flex: 1; min-height: 120px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.chip:hover { border-color: var(--dim); }
+.chip.on { background: var(--panel2); border-color: var(--accent); }
+.chip .count { color: var(--dim); font-variant-numeric: tabular-nums; }
+.chip .swatch { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.from-cache { color: var(--dim); font-size: 12px; margin-left: 6px; }
 
 .setting { display: flex; align-items: center; gap: 16px; padding: 13px 0; border-top: 1px solid var(--line); }
 .setting:first-of-type { border-top: 0; }
