@@ -1,11 +1,35 @@
-// Package ownports tracks local UDP ports of plain-DNS sockets opened by this
-// process, so the interceptor lets those packets through instead of looping.
+// Package ownports reserves the local UDP ports from which the service sends
+// plain DNS itself (for rules that use the original DNS server). The
+// interceptor lets these packets through, and the guard does not block them,
+// so they can be told apart from every other application's queries.
 package ownports
 
-import "sync"
+import (
+	"errors"
+	"math/rand/v2"
+	"net"
+)
 
-var ports sync.Map
+// Low and High bound the reserved range. It lies below the Windows dynamic
+// port range (49152 and above), so ephemeral sockets of other programs do not
+// normally take these ports.
+const (
+	Low  = 48600
+	High = 48699
+)
 
-func Add(port uint16)           { ports.Store(port, struct{}{}) }
-func Remove(port uint16)        { ports.Delete(port) }
-func Contains(port uint16) bool { _, ok := ports.Load(port); return ok }
+// Contains reports whether port is one of the reserved ports.
+func Contains(port uint16) bool { return port >= Low && port <= High }
+
+// ListenUDP opens a UDP socket on a free port from the reserved range.
+func ListenUDP(network string) (*net.UDPConn, error) {
+	first := rand.IntN(High - Low + 1)
+	for i := 0; i <= High-Low; i++ {
+		port := Low + (first+i)%(High-Low+1)
+		conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
+		if err == nil {
+			return conn, nil
+		}
+	}
+	return nil, errors.New("no free port in the reserved range for plain DNS")
+}

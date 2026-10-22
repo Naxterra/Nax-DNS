@@ -27,13 +27,20 @@ type cache struct {
 
 func newCache() *cache { return &cache{entries: map[string]cacheEntry{}} }
 
+// cacheKey separates requests whose answers may differ: the DO bit asks for
+// DNSSEC records, and the CD bit asks the server not to validate, so such an
+// answer must never be reused for a request that expects validation.
 func cacheKey(req *dns.Msg) string {
 	q := req.Question[0]
 	do := "0"
 	if opt := req.IsEdns0(); opt != nil && opt.Do() {
 		do = "1"
 	}
-	return strings.ToLower(q.Name) + "|" + strconv.Itoa(int(q.Qtype)) + "|" + strconv.Itoa(int(q.Qclass)) + "|" + do
+	cd := "0"
+	if req.CheckingDisabled {
+		cd = "1"
+	}
+	return strings.ToLower(q.Name) + "|" + strconv.Itoa(int(q.Qtype)) + "|" + strconv.Itoa(int(q.Qclass)) + "|" + do + cd
 }
 
 // get returns a copy with TTLs reduced by the entry's age. stale reports an
@@ -81,11 +88,20 @@ func (c *cache) put(key string, msg *dns.Msg, minTTL, maxTTL int) {
 			}
 		}
 	}
-	if !seen {
+	if len(msg.Answer) == 0 {
+		// A negative answer lives as long as the smaller of the SOA record's
+		// TTL and its MINIMUM field (RFC 2308), and at most five minutes.
+		for _, rr := range msg.Ns {
+			if soa, ok := rr.(*dns.SOA); ok && soa.Minttl < ttl {
+				ttl = soa.Minttl
+			}
+		}
+		if !seen {
+			ttl = 30
+		}
+		ttl = min(ttl, 300)
+	} else if !seen {
 		ttl = 30
-	}
-	if len(msg.Answer) == 0 && ttl > 300 {
-		ttl = 300 // negative answers
 	}
 	if int(ttl) < minTTL {
 		ttl = uint32(minTTL)

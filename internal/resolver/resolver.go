@@ -288,13 +288,16 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 		r.record(e, start)
 		return Result{Msg: reply(req, dns.RcodeNameError)}
 	}
+	strict := st.settings.OnFailure == config.FailServfail
 	pass := func() Result {
-		if o.Proto == "udp" {
+		// Outside strict mode the original packet continues on its way. In
+		// strict mode the guard drops such packets, so the query is sent again
+		// from one of the reserved ports that the guard lets through.
+		if o.Proto == "udp" && !strict {
 			e.Action = "passthrough"
 			r.record(e, start)
 			return Result{Passthrough: true}
 		}
-		// No original packet to release: forward a copy to the original server.
 		if o.Server.IsValid() {
 			if resp, err := upstream.PlainExchange(ctx, o.Server, req); err == nil {
 				e.Action, e.Rcode, e.Answer = "passthrough", dns.RcodeToString[resp.Rcode], summarize(resp)
@@ -376,15 +379,38 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 	return Result{Msg: reply(req, dns.RcodeServerFailure)}
 }
 
+// Overloaded records a query that arrived while every processing slot was
+// busy. With passthrough it was released to the original server; otherwise it
+// is answered with the returned SERVFAIL.
+func (r *Resolver) Overloaded(req *dns.Msg, o Origin, passthrough bool) *dns.Msg {
+	q := req.Question[0]
+	e := Entry{Name: strings.ToLower(strings.TrimSuffix(q.Name, ".")), Type: dns.TypeToString[q.Qtype], Proto: o.Proto,
+		Detail: "too many queries at once"}
+	if o.Server.IsValid() {
+		e.Dest = o.Server.Addr().Unmap().String()
+	}
+	if passthrough {
+		e.Action = "passthrough"
+	} else {
+		e.Action, e.Rcode = "failed", "SERVFAIL"
+	}
+	r.record(e, time.Now())
+	return reply(req, dns.RcodeServerFailure)
+}
+
 type attempt struct {
 	srv  *server
 	resp *dns.Msg
 	err  error
 }
 
-// exchange tries servers in order. A failed server is followed immediately by
-// the next one; a slow server is raced against the next after the hedge delay.
-// Servers marked down are skipped while a healthy one exists.
+// exchange tries servers in order. Only a server that fails (connection or
+// protocol error, timeout) is followed by the next one; any DNS answer,
+// SERVFAIL included, is final, so a query is never shown to more providers
+// than necessary and a DNSSEC failure is not retried until some server lets
+// it through. With a hedge delay set, a slow server is additionally raced
+// against the next one. Servers marked down are skipped while a healthy one
+// exists.
 func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server, req *dns.Msg) (*dns.Msg, *server, string) {
 	var order, down []*server
 	for _, s := range candidates {
@@ -405,7 +431,14 @@ func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server
 	}
 
 	timeout := time.Duration(st.settings.TimeoutMs) * time.Millisecond
-	ctx, cancel := context.WithTimeout(ctx, timeout+time.Duration(len(order))*time.Duration(st.settings.HedgeMs)*time.Millisecond)
+	hedgeDelay := time.Duration(st.settings.HedgeMs) * time.Millisecond
+	// Without hedging, every server in the chain may need a full timeout
+	// before the next one is asked. The caller's own deadline still applies.
+	budget := time.Duration(len(order)) * timeout
+	if hedgeDelay > 0 {
+		budget = timeout + time.Duration(len(order))*hedgeDelay
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	results := make(chan attempt, len(order))
@@ -426,13 +459,15 @@ func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server
 		}()
 	}
 
-	hedgeDelay := time.Duration(st.settings.HedgeMs) * time.Millisecond
 	launched := make([]time.Time, len(order))
 	answered := map[*server]bool{}
 	// A server that stayed silent past the hedge delay while another one
 	// answered counts as failed, so a dead primary is skipped after a few
 	// queries instead of delaying every one of them.
 	penalizeSilent := func(winner *server) {
+		if hedgeDelay <= 0 {
+			return // nothing ran in parallel
+		}
 		for i, s := range order {
 			if s != winner && !answered[s] && !launched[i].IsZero() && time.Since(launched[i]) >= hedgeDelay {
 				s.observe(st, errors.New("no answer before the backup server replied"), 0)
@@ -452,11 +487,15 @@ func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server
 		return true
 	}
 	start()
-	hedge := time.NewTimer(hedgeDelay)
-	defer hedge.Stop()
+	var hedgeC <-chan time.Time
+	var hedge *time.Timer
+	if hedgeDelay > 0 {
+		hedge = time.NewTimer(hedgeDelay)
+		defer hedge.Stop()
+		hedgeC = hedge.C
+	}
 
 	var errs []string
-	var servfail *attempt
 	for pending > 0 {
 		select {
 		case a := <-results:
@@ -465,15 +504,12 @@ func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server
 			switch {
 			case a.err != nil:
 				errs = append(errs, a.srv.cfg.Name+": "+a.err.Error())
-			case a.resp.Rcode == dns.RcodeServerFailure:
-				servfail = &a
-				errs = append(errs, a.srv.cfg.Name+": SERVFAIL")
 			default:
 				penalizeSilent(a.srv)
 				return a.resp, a.srv, strings.Join(errs, "; ")
 			}
 			start()
-		case <-hedge.C:
+		case <-hedgeC:
 			if start() {
 				hedge.Reset(hedgeDelay)
 			}
@@ -481,9 +517,6 @@ func (r *Resolver) exchange(ctx context.Context, st *state, candidates []*server
 			pending = 0
 			errs = append(errs, "timed out")
 		}
-	}
-	if servfail != nil {
-		return servfail.resp, servfail.srv, strings.Join(errs, "; ")
 	}
 	return nil, nil, strings.Join(errs, "; ")
 }
@@ -575,6 +608,22 @@ type TestResult struct {
 	Error     string  `json:"error"`
 }
 
+// checkTestAnswer accepts only a real answer to one of the well-known test
+// names. A server that is reachable but refuses or fails to resolve them does
+// not pass the test.
+func checkTestAnswer(resp *dns.Msg) error {
+	if resp == nil {
+		return errors.New("empty response")
+	}
+	if resp.Rcode != dns.RcodeSuccess {
+		return fmt.Errorf("the server answered %s instead of resolving the test name", dns.RcodeToString[resp.Rcode])
+	}
+	if len(resp.Answer) == 0 {
+		return errors.New("the server answered without any address for the test name")
+	}
+	return nil
+}
+
 // Test measures a server with a fresh connection, independent of live routing.
 func Test(ctx context.Context, u config.Upstream, s config.Settings) TestResult {
 	res := TestResult{ID: u.ID}
@@ -598,10 +647,11 @@ func Test(ctx context.Context, u config.Upstream, s config.Settings) TestResult 
 		qctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		resp, err := client.Exchange(qctx, req)
-		if err == nil && resp == nil {
-			err = errors.New("empty response")
+		took := float64(time.Since(began).Microseconds()) / 1000
+		if err == nil {
+			err = checkTestAnswer(resp)
 		}
-		return float64(time.Since(began).Microseconds()) / 1000, err
+		return took, err
 	}
 	if res.ConnectMs, err = once(probeName); err != nil {
 		res.Error = err.Error()

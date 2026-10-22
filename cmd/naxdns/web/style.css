@@ -132,3 +132,7 @@ details { margin-bottom: 12px; }
 summary { color: var(--dim); font-size: 13px; cursor: pointer; margin-bottom: 10px; }
 html, body { user-select: none; }
 input, textarea, td, code { user-select: text; }
+.hint.guard.ok { color: var(--ok); }
+.hint.guard.bad { color: var(--warn); }
+.card.problem { border-color: var(--warn); }
+.card.problem h2 { color: var(--warn); }

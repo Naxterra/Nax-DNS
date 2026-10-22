@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,9 @@ import (
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+
+	"naxdns/internal/guard"
+	"naxdns/internal/service"
 )
 
 const (
@@ -54,8 +58,8 @@ func requireAdmin() error {
 	return nil
 }
 
-func stopService(m *mgr.Mgr) {
-	s, err := m.OpenService(serviceName)
+func stopService(m *mgr.Mgr, name string) {
+	s, err := m.OpenService(name)
 	if err != nil {
 		return
 	}
@@ -86,8 +90,63 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func install() error {
+// controlUser returns the account that may use the control pipe: the one
+// given with --user, or else the account running the installer.
+func controlUser(given string) (string, error) {
+	if given != "" {
+		if _, err := windows.StringToSid(given); err != nil {
+			return "", fmt.Errorf("--user %q is not a valid SID", given)
+		}
+		return given, nil
+	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		return "", err
+	}
+	return user.User.Sid.String(), nil
+}
+
+// ensureService creates the service or points an existing one at exe.
+func ensureService(m *mgr.Mgr, name, display, description string, exe string, args ...string) (*mgr.Service, error) {
+	s, err := m.OpenService(name)
+	if err != nil {
+		s, err = m.CreateService(name, exe, mgr.Config{
+			DisplayName: display, Description: description, StartType: mgr.StartAutomatic,
+		}, args...)
+		if err != nil {
+			return nil, fmt.Errorf("create service %s: %w", name, err)
+		}
+	} else {
+		// An existing service may still point at an older folder or name.
+		c, err := s.Config()
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("read service config %s: %w", name, err)
+		}
+		c.BinaryPathName = `"` + exe + `"`
+		for _, a := range args {
+			c.BinaryPathName += " " + a
+		}
+		c.DisplayName, c.Description, c.StartType = display, description, mgr.StartAutomatic
+		if err := s.UpdateConfig(c); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("update service config %s: %w", name, err)
+		}
+	}
+	s.SetRecoveryActions([]mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
+	}, 3600)
+	return s, nil
+}
+
+func install(user string) error {
 	if err := requireAdmin(); err != nil {
+		return err
+	}
+	sid, err := controlUser(user)
+	if err != nil {
 		return err
 	}
 	exe, err := os.Executable()
@@ -101,7 +160,9 @@ func install() error {
 		return err
 	}
 	defer m.Disconnect()
-	stopService(m)
+	// Both services run from the files that are about to be replaced.
+	stopService(m, serviceName)
+	stopService(m, guard.ServiceName)
 
 	if !strings.EqualFold(srcDir, dstDir) {
 		stopTray()
@@ -119,36 +180,28 @@ func install() error {
 	svcExe := filepath.Join(dstDir, serviceExe)
 	guiExe := filepath.Join(dstDir, guiExeName)
 
-	s, err := m.OpenService(serviceName)
+	s, err := ensureService(m, serviceName, "Nax-DNSManager",
+		"Intercepts DNS queries and resolves them over encrypted DNS (DoH, DoH3, DoT, DoQ).", svcExe)
 	if err != nil {
-		s, err = m.CreateService(serviceName, svcExe, mgr.Config{
-			DisplayName: "Nax-DNSManager",
-			Description: "Intercepts DNS queries and resolves them over encrypted DNS (DoH, DoH3, DoT, DoQ).",
-			StartType:   mgr.StartAutomatic,
-		})
-		if err != nil {
-			return fmt.Errorf("create service: %w", err)
-		}
-	} else {
-		// An existing service may still point at the pre-rename folder.
-		c, err := s.Config()
-		if err != nil {
-			s.Close()
-			return fmt.Errorf("read service config: %w", err)
-		}
-		c.BinaryPathName = `"` + svcExe + `"`
-		c.DisplayName = "Nax-DNSManager"
-		if err := s.UpdateConfig(c); err != nil {
-			s.Close()
-			return fmt.Errorf("update service config: %w", err)
-		}
+		return err
 	}
 	defer s.Close()
-	s.SetRecoveryActions([]mgr.RecoveryAction{
-		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 10 * time.Second},
-		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
-	}, 3600)
+	g, err := ensureService(m, guard.ServiceName, "Nax-DNSManager Guard",
+		"Blocks plain DNS in strict mode whenever the Nax-DNSManager service is not handling it.", svcExe, "guard")
+	if err != nil {
+		return err
+	}
+	defer g.Close()
+
+	k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, service.ParametersKey, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("record control user: %w", err)
+	}
+	err = k.SetStringValue(service.ControlUserValue, sid)
+	k.Close()
+	if err != nil {
+		return fmt.Errorf("record control user: %w", err)
+	}
 
 	// Reflected TCP/53 connections arrive at the service as inbound connections.
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+firewallRule).Run()
@@ -168,8 +221,69 @@ func install() error {
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w", err)
 	}
-	fmt.Println("Nax-DNSManager installed in", dstDir, "and started.")
+	if err := g.Start(); err != nil {
+		return fmt.Errorf("start guard service: %w", err)
+	}
+	ready, err := waitReady(20 * time.Second)
+	if err != nil {
+		return fmt.Errorf("installed in %s, but %w", dstDir, err)
+	}
+	fmt.Printf("Nax-DNSManager %s installed in %s and running: %s.\n", service.Version, dstDir, ready)
 	return nil
+}
+
+// waitReady checks through the control pipe that the new service answers,
+// is the version just installed, and is intercepting if protection is on. In
+// strict mode the guard must also be running.
+func waitReady(limit time.Duration) (string, error) {
+	type state struct {
+		Version      string `json:"version"`
+		Active       bool   `json:"active"`
+		Intercepting bool   `json:"intercepting"`
+		Detail       string `json:"detail"`
+		Guard        struct {
+			Running bool   `json:"running"`
+			Enabled bool   `json:"enabled"`
+			Error   string `json:"error"`
+		} `json:"guard"`
+		ConfigProblem string `json:"configProblem"`
+	}
+	client := service.PipeClient()
+	client.Timeout = 3 * time.Second
+	deadline := time.Now().Add(limit)
+	problem := "the service did not answer"
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get("http://naxdns/api/state")
+		if err != nil {
+			continue
+		}
+		var st state
+		err = json.NewDecoder(resp.Body).Decode(&st)
+		resp.Body.Close()
+		if err != nil {
+			problem = "the service sent an unreadable status"
+			continue
+		}
+		switch {
+		case st.Version != service.Version:
+			problem = fmt.Sprintf("version %s is running instead of %s", st.Version, service.Version)
+		case st.Active && !st.Intercepting:
+			problem = "protection is on but DNS is not being intercepted (" + st.Detail + ")"
+		case !st.Guard.Running:
+			problem = "the guard service is not running"
+		default:
+			summary := st.Detail
+			if st.Guard.Enabled {
+				summary += ", guard blocking DNS outside the service"
+			}
+			if st.ConfigProblem != "" {
+				summary += ". Warning: " + st.ConfigProblem
+			}
+			return summary, nil
+		}
+	}
+	return "", errors.New(problem)
 }
 
 // removeLegacyInstall deletes the pre-rename program folder once the service
@@ -193,10 +307,13 @@ func uninstall() error {
 		return err
 	}
 	defer m.Disconnect()
-	stopService(m)
-	if s, err := m.OpenService(serviceName); err == nil {
-		s.Delete()
-		s.Close()
+	// The guard goes first, so DNS works again once the resolver stops.
+	for _, name := range []string{guard.ServiceName, serviceName} {
+		stopService(m, name)
+		if s, err := m.OpenService(name); err == nil {
+			s.Delete()
+			s.Close()
+		}
 	}
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+firewallRule).Run()
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+legacyFirewallRule).Run()

@@ -63,16 +63,18 @@ type Bootstrap struct {
 
 func NewBootstrap(endpoints []string, timeout time.Duration) (*Bootstrap, error) {
 	b := &Bootstrap{lastGood: map[string][]netip.Addr{}}
-	var parallel adg.ParallelResolver
+	// The endpoints are asked one after another, so normally only the first
+	// bootstrap provider learns which DNS servers are configured.
+	var inTurn adg.ConsequentResolver
 	for _, e := range endpoints {
 		r, err := adg.NewUpstreamResolver(e, &adg.Options{Timeout: timeout, Logger: quiet})
 		if err != nil {
 			return nil, fmt.Errorf("bootstrap %s: %w", e, err)
 		}
 		b.closers = append(b.closers, r)
-		parallel = append(parallel, adg.NewCachingResolver(r))
+		inTurn = append(inTurn, adg.NewCachingResolver(r))
 	}
-	b.resolver = parallel
+	b.resolver = inTurn
 	return b, nil
 }
 
@@ -148,20 +150,18 @@ func (p plain) Exchange(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 
 func (plain) Close() error { return nil }
 
-// PlainExchange sends req over UDP/53 from a socket the interceptor ignores.
+// PlainExchange sends req over UDP/53 from a reserved port, which neither the
+// interceptor nor the guard touches.
 func PlainExchange(ctx context.Context, server netip.AddrPort, req *dns.Msg) (*dns.Msg, error) {
 	network := "udp4"
 	if server.Addr().Is6() && !server.Addr().Is4In6() {
 		network = "udp6"
 	}
-	conn, err := net.ListenUDP(network, nil)
+	conn, err := ownports.ListenUDP(network)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
-	port := uint16(conn.LocalAddr().(*net.UDPAddr).Port)
-	ownports.Add(port)
-	defer ownports.Remove(port)
 
 	wire, err := req.Pack()
 	if err != nil {

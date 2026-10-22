@@ -15,12 +15,16 @@ import (
 )
 
 // Version is shown in the UI.
-const Version = "0.1.2"
+const Version = "0.2.0"
 
 type Engine struct {
 	mu   sync.Mutex
 	cfg  *config.Config
 	path string
+
+	// configProblem describes a configuration that could not be loaded at
+	// startup. It is shown in the app until the configuration is saved again.
+	configProblem string
 
 	Resolver    *resolver.Resolver
 	Interceptor *intercept.Manager
@@ -30,10 +34,11 @@ type Engine struct {
 func NewEngine() (*Engine, error) {
 	e := &Engine{path: filepath.Join(config.Dir(), "config.json"), Resolver: resolver.New()}
 	e.Interceptor = intercept.NewManager(e.Resolver)
-	cfg, err := config.Load(e.path)
-	if err != nil {
-		log.Printf("configuration unusable, starting with defaults: %v", err)
-		cfg = config.Default()
+	cfg, problem := config.Recover(e.path)
+	if problem != "" {
+		log.Print(problem)
+		e.configProblem = problem
+		cfg.Save(e.path)
 	}
 	if err := e.Resolver.Reload(cfg); err != nil {
 		return nil, err
@@ -87,7 +92,15 @@ func (e *Engine) Apply(next *config.Config) error {
 	if err := next.Save(e.path); err != nil {
 		return err
 	}
+	e.configProblem = ""
 	return applyErr
+}
+
+// ConfigProblem returns the startup configuration problem, if any.
+func (e *Engine) ConfigProblem() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.configProblem
 }
 
 // SetActive switches protection on or off.

@@ -98,7 +98,12 @@ func (a *app) handler(host string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", proxy)
 	mux.HandleFunc("POST /local/install", func(w http.ResponseWriter, r *http.Request) {
-		if err := elevate("install"); err != nil {
+		// The installer grants this account access to the service's control pipe.
+		args := "install"
+		if user, err := windows.GetCurrentProcessToken().GetTokenUser(); err == nil {
+			args += " --user " + user.User.Sid.String()
+		}
+		if err := elevate(args); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return

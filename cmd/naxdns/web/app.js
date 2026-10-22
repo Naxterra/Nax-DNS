@@ -127,7 +127,7 @@ function renderOverview() {
   let cls = '', title = T('Protection is off'), sub = T('DNS queries go to whatever server Windows or your VPN has configured.');
   if (st.intercepting && current) {
     cls = 'on';
-    title = T('Protected — using {0}', current.name);
+    title = T('Protected by {0}', current.name);
     sub = T('{0}. Every DNS query on this PC is answered over {1}', TDetail(st.detail), protoOf(current.url)) +
       (current !== enabled[0] ? T(' (backup; {0} is unreachable).', enabled[0].name) : '.');
   } else if (st.intercepting) {
@@ -141,14 +141,27 @@ function renderOverview() {
     title = T('Protection could not start');
     sub = TDetail(st.detail);
   }
+  // In strict mode the guard service blocks plain DNS whenever this service
+  // is not handling it, including while it is stopped or restarting.
+  let guardNote = null;
+  if (cfg.active && cfg.settings.onFailure === 'servfail') {
+    const g = st.guard || {};
+    guardNote = g.enabled
+      ? h('p', { class: 'hint guard ok' }, T('Kill switch on: plain DNS is blocked whenever Nax-DNSManager is not answering it, even if its service stops.'))
+      : h('p', { class: 'hint guard bad' }, T('The kill switch is not active, so DNS can bypass Nax-DNSManager if its service stops.') + (g.error ? ' ' + g.error : ''));
+  }
+  const problem = st.configProblem
+    ? h('div', { class: 'card problem' }, h('h2', {}, T('The saved configuration could not be read.')), h('p', { class: 'hint' }, st.configProblem))
+    : null;
   const s = st.stats || {};
   const pct = (n) => s.total ? ` (${Math.round(100 * n / s.total)}%)` : '';
   const tile = (n, l) => h('div', { class: 'tile' }, h('div', { class: 'n' }, n ?? 0), h('div', { class: 'l' }, l));
 
   $('#overview').replaceChildren(
+    ...(problem ? [problem] : []),
     h('div', { class: 'card hero ' + cls },
       h('span', { class: 'dot' }),
-      h('div', { class: 'grow' }, h('div', { class: 'title' }, title), h('p', { class: 'hint' }, sub)),
+      h('div', { class: 'grow' }, h('div', { class: 'title' }, title), h('p', { class: 'hint' }, sub), guardNote),
       h('button', { class: 'btn' + (cfg.active ? '' : ' primary'), onclick: () => setActive(!cfg.active) },
         cfg.active ? T('Turn off') : T('Turn on'))),
     h('div', { class: 'tiles' },
@@ -510,7 +523,7 @@ function renderActivity() {
       if (!lookup.value.trim()) return;
       try {
         const e = await api('POST', '/api/resolve', { name: lookup.value.trim(), type: 'A' });
-        toast(`${e.name}: ${T(ACTION_LABEL[e.action] || e.action)}${e.server ? T(' via {0}', e.server) : ''} — ${e.answer || e.rcode || T(e.detail)}`);
+        toast(`${e.name}: ${T(ACTION_LABEL[e.action] || e.action)}${e.server ? T(' via {0}', e.server) : ''}: ${e.answer || e.rcode || T(e.detail)}`);
       } catch (err) { toast(err.message, true); }
     };
     lookup.onkeydown = e => { if (e.key === 'Enter') doLookup(); };
@@ -601,9 +614,9 @@ function renderSettings() {
       row('Language', 'Language of the Nax-DNSManager window and tray menu.', language)),
     h('div', { class: 'card' },
       h('h2', {}, T('Reliability')),
-      row('When no encrypted server is reachable', 'For example while a VPN is still connecting or its firewall blocks everything else.',
+      row('When no encrypted server is reachable', 'For example while a VPN is still connecting or its firewall blocks everything else. In strict mode a separate guard service also blocks plain DNS while Nax-DNSManager is stopped.',
         select('onFailure', { passthrough: 'Use the original DNS server', servfail: 'Fail the query (strict, no plaintext)' })),
-      row('Try the next server after', 'Milliseconds without an answer before the backup is asked as well. An error switches immediately.', number('hedgeMs', 100, 10000)),
+      row('Ask the next server in parallel after', 'Milliseconds without an answer before the backup is asked as well. 0 = never: the backup is used only after an error or timeout, so each query goes to one provider.', number('hedgeMs', 0, 10000)),
       row('Query timeout', 'Milliseconds before a server attempt counts as failed.', number('timeoutMs', 500, 15000)),
       row('Mark a server as down after', 'Consecutive failures. A down server is skipped and re-checked in the background.', number('failThreshold', 1, 20))),
     h('div', { class: 'card' },

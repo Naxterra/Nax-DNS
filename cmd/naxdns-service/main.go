@@ -3,7 +3,8 @@
 //
 //	Nax-DNSService            run as Windows service (started by the SCM)
 //	Nax-DNSService run        run in the foreground (elevated console)
-//	Nax-DNSService install    copy to Program Files, register and start
+//	Nax-DNSService guard      run the strict-mode guard (its own Windows service)
+//	Nax-DNSService install [--user SID]  copy to Program Files, register and start
 //	Nax-DNSService uninstall  stop and remove
 //	Nax-DNSService test [url...]  measure servers from this network
 package main
@@ -22,6 +23,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 
 	"naxdns/internal/config"
+	"naxdns/internal/guard"
 	"naxdns/internal/resolver"
 	"naxdns/internal/service"
 	"naxdns/internal/upstream"
@@ -32,33 +34,45 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if isService {
-		setupLog(false)
-		if err := svc.Run(serviceName, handler{}); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
 	cmd := ""
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
+	if isService {
+		name, h := serviceName, handler{run: run}
+		if cmd == "guard" {
+			name, h = guard.ServiceName, handler{run: runGuard}
+		}
+		setupLog(name, false)
+		if err := svc.Run(name, h); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	switch cmd {
-	case "run":
-		setupLog(true)
+	case "run", "guard":
+		f := run
+		if cmd == "guard" {
+			f = runGuard
+		}
+		setupLog(cmd, true)
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
-		if err := run(ctx); err != nil {
+		if err := f(ctx); err != nil {
 			log.Fatal(err)
 		}
 	case "install":
-		exitOn(install())
+		user := ""
+		if len(os.Args) > 3 && os.Args[2] == "--user" {
+			user = os.Args[3]
+		}
+		exitOn(install(user))
 	case "uninstall":
 		exitOn(uninstall())
 	case "test":
 		test(os.Args[2:])
 	default:
-		fmt.Println("usage: Nax-DNSService run | install | uninstall | test [url...]")
+		fmt.Println("usage: Nax-DNSService run | guard | install [--user SID] | uninstall | test [url...]")
 		os.Exit(2)
 	}
 }
@@ -70,9 +84,14 @@ func exitOn(err error) {
 	}
 }
 
-func setupLog(console bool) {
+// setupLog writes to service.log, or to guard.log for the guard.
+func setupLog(name string, console bool) {
 	os.MkdirAll(config.Dir(), 0o755)
-	path := filepath.Join(config.Dir(), "service.log")
+	file := "service.log"
+	if name == "guard" || name == guard.ServiceName {
+		file = "guard.log"
+	}
+	path := filepath.Join(config.Dir(), file)
 	if fi, err := os.Stat(path); err == nil && fi.Size() > 5<<20 {
 		os.Rename(path, path+".old")
 	}
@@ -98,14 +117,23 @@ func run(ctx context.Context) error {
 	return engine.Serve(ctx)
 }
 
-type handler struct{}
+func runGuard(ctx context.Context) error {
+	log.Printf("Nax-DNSManager guard %s started", service.Version)
+	guard.Run(ctx)
+	return nil
+}
 
-func (handler) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+// handler runs one of the two services until the SCM stops it.
+type handler struct {
+	run func(context.Context) error
+}
+
+func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	status <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- run(ctx) }()
+	go func() { done <- h.run(ctx) }()
 	status <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for {
 		select {

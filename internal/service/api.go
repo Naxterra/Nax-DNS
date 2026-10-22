@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,25 +12,61 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/miekg/dns"
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 
 	"naxdns/internal/config"
+	"naxdns/internal/guard"
 	"naxdns/internal/resolver"
 )
 
 // PipeName is the control channel between the service and the desktop app.
 const PipeName = `\\.\pipe\NaxDNS.Control`
 
-// SYSTEM and Administrators get full access; the signed-in interactive user
-// may connect so the tray app works without elevation.
-const pipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+// ParametersKey holds the service settings that the installer writes.
+const ParametersKey = `SYSTEM\CurrentControlSet\Services\NaxDNS\Parameters`
+
+// ControlUserValue names the account allowed to use the control pipe besides
+// SYSTEM and Administrators.
+const ControlUserValue = "ControlUser"
+
+// pipeSDDL gives SYSTEM and Administrators full access. The account that
+// installed the app may also read and write, so its tray app works without
+// elevation. Other accounts on the PC cannot change the configuration. Without
+// a recorded account, only elevated programs can connect.
+func pipeSDDL() string {
+	sddl := "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, ParametersKey, registry.QUERY_VALUE)
+	if err != nil {
+		return sddl
+	}
+	defer k.Close()
+	sid, _, err := k.GetStringValue(ControlUserValue)
+	if err != nil {
+		return sddl
+	}
+	if _, err := windows.StringToSid(sid); err != nil {
+		log.Printf("ignoring invalid control user %q", sid)
+		return sddl
+	}
+	return sddl + "(A;;GRGW;;;" + sid + ")"
+}
+
+type guardState struct {
+	Running bool   `json:"running"`
+	Enabled bool   `json:"enabled"`
+	Error   string `json:"error,omitempty"`
+}
 
 type stateResponse struct {
-	Version      string                 `json:"version"`
-	Active       bool                   `json:"active"`
-	Intercepting bool                   `json:"intercepting"`
-	Detail       string                 `json:"detail"`
-	Servers      []resolver.ServerState `json:"servers"`
-	Stats        resolver.Stats         `json:"stats"`
+	Version       string                 `json:"version"`
+	Active        bool                   `json:"active"`
+	Intercepting  bool                   `json:"intercepting"`
+	Detail        string                 `json:"detail"`
+	Servers       []resolver.ServerState `json:"servers"`
+	Stats         resolver.Stats         `json:"stats"`
+	Guard         guardState             `json:"guard"`
+	ConfigProblem string                 `json:"configProblem,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -49,9 +86,12 @@ func (e *Engine) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		running, detail := e.Interceptor.Status()
+		gs, guardRunning := guard.ReadStatus()
 		writeJSON(w, stateResponse{
 			Version: Version, Active: e.Config().Active, Intercepting: running, Detail: detail,
 			Servers: e.Resolver.ServerStates(), Stats: e.Resolver.Stats(),
+			Guard:         guardState{Running: guardRunning, Enabled: guardRunning && gs.Enabled, Error: gs.Error},
+			ConfigProblem: e.ConfigProblem(),
 		})
 	})
 
@@ -159,7 +199,7 @@ func (e *Engine) Handler() http.Handler {
 
 // Serve listens on the control pipe until ctx is cancelled.
 func (e *Engine) Serve(ctx context.Context) error {
-	ln, err := winio.ListenPipe(PipeName, &winio.PipeConfig{SecurityDescriptor: pipeSDDL})
+	ln, err := winio.ListenPipe(PipeName, &winio.PipeConfig{SecurityDescriptor: pipeSDDL()})
 	if err != nil {
 		return err
 	}

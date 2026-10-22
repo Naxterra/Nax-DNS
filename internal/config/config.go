@@ -103,7 +103,7 @@ func Default() *Config {
 			},
 		}},
 		Settings: Settings{
-			TimeoutMs: 3000, HedgeMs: 1500, FailThreshold: 3, CooldownSec: 15,
+			TimeoutMs: 3000, HedgeMs: 0, FailThreshold: 3, CooldownSec: 15,
 			OnFailure: FailServfail,
 			Cache:     true, CacheMinTTL: 0, CacheMaxTTL: 3600,
 			InterceptLoopback: true, TCPMode: TCPProxy,
@@ -120,8 +120,8 @@ func (c *Config) Normalize() {
 	if s.TimeoutMs <= 0 {
 		s.TimeoutMs = d.TimeoutMs
 	}
-	if s.HedgeMs <= 0 {
-		s.HedgeMs = d.HedgeMs
+	if s.HedgeMs < 0 {
+		s.HedgeMs = 0 // 0: never ask a backup in parallel
 	}
 	if s.FailThreshold <= 0 {
 		s.FailThreshold = d.FailThreshold
@@ -257,7 +257,28 @@ func Load(path string) (*Config, error) {
 	return c, c.Validate()
 }
 
-// Save writes the file atomically.
+// Recover loads path. If the file cannot be used, it is set aside as
+// "<path>.broken" and the copy kept from the last successful save is used
+// instead, so a damaged file does not silently switch protection off.
+// problem describes what happened and is empty when the file was fine.
+func Recover(path string) (cfg *Config, problem string) {
+	cfg, err := Load(path)
+	if err == nil {
+		return cfg, ""
+	}
+	os.Rename(path, path+".broken")
+	// Load treats a missing file as a first start, so check that a copy exists.
+	if _, serr := os.Stat(backupPath(path)); serr == nil {
+		if backup, berr := Load(backupPath(path)); berr == nil {
+			return backup, fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored, and the damaged file was kept as %s.", err, filepath.Base(path)+".broken")
+		}
+	}
+	return Default(), fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. The damaged file was kept as %s.", err, filepath.Base(path)+".broken")
+}
+
+func backupPath(path string) string { return path + ".last-good" }
+
+// Save writes the file atomically and keeps a copy for Recover.
 func (c *Config) Save(path string) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
@@ -266,9 +287,14 @@ func (c *Config) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	for _, target := range []string{path, backupPath(path)} {
+		tmp := target + ".tmp"
+		if err := os.WriteFile(tmp, data, 0o644); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, target); err != nil {
+			return err
+		}
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
