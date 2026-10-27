@@ -56,6 +56,9 @@ func Filter(s config.Settings) string {
 
 // Status is written by the guard and shown by the resolver service.
 type Status struct {
+	// Stopped is written when the guard exits, so it is never mistaken for a
+	// running guard because its last report is still recent.
+	Stopped bool      `json:"stopped,omitempty"`
 	Enabled bool      `json:"enabled"`
 	Filter  string    `json:"filter,omitempty"`
 	Error   string    `json:"error,omitempty"`
@@ -70,7 +73,7 @@ func ReadStatus() (Status, bool) {
 	if err != nil || json.Unmarshal(data, &st) != nil {
 		return st, false
 	}
-	return st, time.Since(st.Updated) < 5*pollInterval
+	return st, !st.Stopped && time.Since(st.Updated) < 5*pollInterval
 }
 
 func writeStatus(st Status) {
@@ -94,7 +97,7 @@ func Run(ctx context.Context) {
 			handle.Shutdown()
 			handle.Close()
 		}
-		writeStatus(Status{})
+		writeStatus(Status{Stopped: true})
 	}()
 	path := filepath.Join(config.Dir(), "config.json")
 	tick := time.NewTicker(pollInterval)

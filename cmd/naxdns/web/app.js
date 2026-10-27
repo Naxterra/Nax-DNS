@@ -90,6 +90,7 @@ async function api(method, path, body) {
   if (!res.ok) {
     const err = new Error(T(data.error || res.statusText));
     err.serviceDown = !!data.serviceDown;
+    err.accessDenied = !!data.accessDenied;
     throw err;
   }
   return data;
@@ -107,6 +108,9 @@ async function save(change, okMsg) {
     return true;
   } catch (e) {
     toast(e.message, true);
+    // The service may have saved the change and only failed to start
+    // interception, so show what it actually holds now.
+    try { cfg = await api('GET', '/api/config'); } catch (_) { /* keep the old copy */ }
     return false;
   } finally {
     render();
@@ -128,7 +132,7 @@ function renderOverview() {
   if (st.intercepting && current) {
     cls = 'on';
     title = T('Protected by {0}', current.name);
-    sub = T('{0}. Every DNS query on this PC is answered over {1}', TDetail(st.detail), protoOf(current.url)) +
+    sub = T('{0}. Intercepted queries are answered over {1}', TDetail(st.detail), protoOf(current.url)) +
       (current !== enabled[0] ? T(' (backup; {0} is unreachable).', enabled[0].name) : '.');
   } else if (st.intercepting) {
     cls = 'warn';
@@ -658,15 +662,34 @@ function render() {
   ({ overview: renderOverview, servers: renderServers, rules: renderRules, activity: renderActivity, settings: renderSettings })[tab]();
 }
 
+let serviceError = '';  // why the service cannot be reached, as reported by the tray app
+
 function showBanner() {
   const b = $('#banner');
   b.hidden = !serviceDown;
-  if (!serviceDown || b.firstChild) return;
+  if (!serviceDown) {
+    b.replaceChildren();
+    return;
+  }
+  // In strict mode the guard keeps blocking DNS while the service is down,
+  // so "not intercepted" would be wrong there.
+  let text = T('The Nax-DNSManager service is not installed or not running. DNS is not being intercepted.');
+  if (serviceError) text = T(serviceError);
+  else if (cfg?.active && cfg.settings.onFailure === 'servfail') {
+    text = T('The Nax-DNSManager service is not reachable. In strict mode DNS stays blocked until it runs again.');
+  }
+  if (b.dataset.text === text) return;
+  b.dataset.text = text;
   b.replaceChildren(
-    h('div', { class: 'grow' }, T('The Nax-DNSManager service is not installed or not running. DNS is not being intercepted.')),
-    h('button', { class: 'btn', onclick: async () => {
-      try { await api('POST', '/local/install'); toast(T('Installing… confirm the Windows prompt.')); }
-      catch (e) { toast(e.message, true); }
+    h('div', { class: 'grow' }, text),
+    h('button', { class: 'btn', onclick: async e => {
+      e.target.disabled = true;
+      toast(T('Installing… confirm the Windows prompt.'));
+      try {
+        await api('POST', '/local/install');
+        toast(T('Installed. Nax-DNSManager restarts with the new version.'));
+      } catch (err) { toast(err.message, true); }
+      e.target.disabled = false;
     } }, T('Install and start service')));
 }
 
@@ -675,9 +698,11 @@ async function refreshState() {
     state = await api('GET', '/api/state');
     if (serviceDown || !cfg) cfg = await api('GET', '/api/config');
     serviceDown = false;
+    serviceError = '';
     cfg.active = state.active;
   } catch (e) {
     serviceDown = true;
+    serviceError = e.accessDenied || e.message.includes('control pipe') ? e.message : '';
   }
   showBanner();
 }

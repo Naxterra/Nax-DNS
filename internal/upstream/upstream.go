@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,17 +154,17 @@ func (plain) Close() error { return nil }
 // PlainExchange sends req over UDP/53 from a reserved port, which neither the
 // interceptor nor the guard touches.
 func PlainExchange(ctx context.Context, server netip.AddrPort, req *dns.Msg) (*dns.Msg, error) {
-	network := "udp4"
-	if server.Addr().Is6() && !server.Addr().Is4In6() {
-		network = "udp6"
-	}
-	conn, err := ownports.ListenUDP(network)
+	conn, err := ownports.DialUDP(server)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	wire, err := req.Pack()
+	// The query goes out with a fresh random ID, which an off-path attacker
+	// would have to guess, and the reply gets the client's ID back.
+	out := req.Copy()
+	out.Id = dns.Id()
+	wire, err := out.Pack()
 	if err != nil {
 		return nil, err
 	}
@@ -172,27 +173,33 @@ func PlainExchange(ctx context.Context, server netip.AddrPort, req *dns.Msg) (*d
 	}
 	stop := context.AfterFunc(ctx, func() { conn.SetDeadline(time.Now()) })
 	defer stop()
-	if _, err := conn.WriteToUDPAddrPort(wire, server); err != nil {
+	if _, err := conn.Write(wire); err != nil {
 		return nil, err
 	}
 	buf := make([]byte, 65535)
 	for {
-		n, from, err := conn.ReadFromUDPAddrPort(buf)
+		n, err := conn.Read(buf)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			return nil, err
 		}
-		if from.Addr().Unmap() != server.Addr().Unmap() {
-			continue
-		}
 		resp := new(dns.Msg)
-		if err := resp.Unpack(buf[:n]); err != nil || resp.Id != req.Id {
+		if err := resp.Unpack(buf[:n]); err != nil || resp.Id != out.Id || !sameQuestion(resp, out) {
 			continue
 		}
+		resp.Id = req.Id
 		return resp, nil
 	}
+}
+
+func sameQuestion(a, b *dns.Msg) bool {
+	if len(a.Question) != 1 || len(b.Question) != 1 {
+		return false
+	}
+	qa, qb := a.Question[0], b.Question[0]
+	return qa.Qtype == qb.Qtype && qa.Qclass == qb.Qclass && strings.EqualFold(qa.Name, qb.Name)
 }
 
 // ErrNoServers is returned when no server could be tried at all.

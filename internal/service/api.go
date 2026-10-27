@@ -3,12 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/miekg/dns"
@@ -49,7 +52,14 @@ func pipeSDDL() string {
 		log.Printf("ignoring invalid control user %q", sid)
 		return sddl
 	}
-	return sddl + "(A;;GRGW;;;" + sid + ")"
+	return sddl + controlUserACE(sid)
+}
+
+// controlUserACE grants sid read access and the right to write data
+// (FILE_GENERIC_READ | FILE_WRITE_DATA), matching clientAccess. It leaves out
+// FILE_APPEND_DATA, which on a pipe is the right to create pipe instances.
+func controlUserACE(sid string) string {
+	return "(A;;0x12008b;;;" + sid + ")"
 }
 
 type guardState struct {
@@ -197,31 +207,112 @@ func (e *Engine) Handler() http.Handler {
 	return mux
 }
 
-// Serve listens on the control pipe until ctx is cancelled.
+// Serve listens on the control pipe until ctx is cancelled. If the pipe name
+// is taken, for example by another program while the service was stopped,
+// it keeps retrying instead of ending the service, so DNS handling continues.
 func (e *Engine) Serve(ctx context.Context) error {
-	ln, err := winio.ListenPipe(PipeName, &winio.PipeConfig{SecurityDescriptor: pipeSDDL()})
-	if err != nil {
-		return err
-	}
 	srv := &http.Server{Handler: e.Handler()}
 	go func() {
 		<-ctx.Done()
 		srv.Close()
 	}()
-	if err := srv.Serve(ln); err != http.ErrServerClosed {
-		return err
+	lastErr := ""
+	for ctx.Err() == nil {
+		ln, err := winio.ListenPipe(PipeName, &winio.PipeConfig{SecurityDescriptor: pipeSDDL()})
+		if err != nil {
+			if err.Error() != lastErr {
+				log.Printf("control pipe unavailable, retrying: %v", err)
+				lastErr = err.Error()
+			}
+			select {
+			case <-ctx.Done():
+			case <-time.After(2 * time.Second):
+			}
+			continue
+		}
+		lastErr = ""
+		if err := srv.Serve(ln); err != http.ErrServerClosed {
+			log.Printf("control pipe stopped, reopening: %v", err)
+			continue
+		}
 	}
 	return nil
 }
 
-// PipeClient returns an HTTP client that talks to the service.
+// clientAccess is what the control account is granted on the pipe: reading
+// plus writing data, but not FILE_CREATE_PIPE_INSTANCE, which would let it
+// serve its own instances of the pipe.
+const clientAccess = windows.GENERIC_READ | windows.FILE_WRITE_DATA
+
+// PipeClient returns an HTTP client that talks to the service. It refuses a
+// pipe that is not served by the installed service running in session 0,
+// so a program squatting on the pipe name cannot pose as the service.
 func PipeClient() *http.Client {
 	return &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return winio.DialPipeContext(ctx, PipeName)
+				conn, err := winio.DialPipeAccess(ctx, PipeName, clientAccess)
+				if err != nil {
+					return nil, err
+				}
+				if err := verifyServer(conn); err != nil {
+					conn.Close()
+					return nil, err
+				}
+				return conn, nil
 			},
 		},
 	}
+}
+
+var procGetNamedPipeServerSessionId = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetNamedPipeServerSessionId")
+
+// ErrNotService means the control pipe is served by some other program.
+var ErrNotService = errors.New("the control pipe is not served by the Nax-DNSManager service")
+
+func verifyServer(conn net.Conn) error {
+	if os.Getenv("NAXDNS_DATA") != "" {
+		return nil // development runs serve the pipe from a console
+	}
+	f, ok := conn.(interface{ Fd() uintptr })
+	if !ok {
+		return ErrNotService
+	}
+	h := windows.Handle(f.Fd())
+	var session uint32
+	if r, _, _ := procGetNamedPipeServerSessionId.Call(uintptr(h), uintptr(unsafe.Pointer(&session))); r == 0 || session != 0 {
+		return ErrNotService
+	}
+	var pid uint32
+	if err := windows.GetNamedPipeServerProcessId(h, &pid); err != nil {
+		return ErrNotService
+	}
+	// A normal account may not open the service's process, but it may ask the
+	// Service Control Manager which process runs the service.
+	if servicePID, err := ServiceProcessID(); err != nil || servicePID == 0 || servicePID != pid {
+		return ErrNotService
+	}
+	return nil
+}
+
+// ServiceProcessID returns the process ID of the running NaxDNS service.
+func ServiceProcessID() (uint32, error) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseServiceHandle(scm)
+	name, _ := windows.UTF16PtrFromString("NaxDNS")
+	svc, err := windows.OpenService(scm, name, windows.SERVICE_QUERY_STATUS)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseServiceHandle(svc)
+	var st windows.SERVICE_STATUS_PROCESS
+	var needed uint32
+	if err := windows.QueryServiceStatusEx(svc, windows.SC_STATUS_PROCESS_INFO, (*byte)(unsafe.Pointer(&st)), uint32(unsafe.Sizeof(st)), &needed); err != nil {
+		return 0, err
+	}
+	return st.ProcessId, nil
 }

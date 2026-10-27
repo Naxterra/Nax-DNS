@@ -216,6 +216,24 @@ func (c *Config) Validate() error {
 	if s.TCPMode != TCPProxy && s.TCPMode != TCPBlock && s.TCPMode != TCPAllow {
 		return fmt.Errorf("unknown tcpMode %q", s.TCPMode)
 	}
+	if s.OnFailure == FailServfail && s.TCPMode == TCPAllow {
+		return errors.New("strict mode cannot let TCP DNS pass unencrypted; choose proxy or block for TCP DNS, or turn strict mode off")
+	}
+	for _, b := range []struct {
+		name          string
+		value, lo, hi int
+	}{
+		{"timeoutMs", s.TimeoutMs, 500, 15000},
+		{"hedgeMs", s.HedgeMs, 0, 10000},
+		{"failThreshold", s.FailThreshold, 1, 20},
+		{"cooldownSec", s.CooldownSec, 1, 3600},
+		{"cacheMinTtl", s.CacheMinTTL, 0, 86400},
+		{"cacheMaxTtl", s.CacheMaxTTL, 10, 86400},
+	} {
+		if b.value < b.lo || b.value > b.hi {
+			return fmt.Errorf("%s must be between %d and %d", b.name, b.lo, b.hi)
+		}
+	}
 	for _, b := range s.BootstrapDoH {
 		u, err := url.Parse(b)
 		if err != nil || u.Scheme != "https" {
@@ -242,7 +260,7 @@ func Dir() string {
 
 // Load reads path, or returns defaults if it does not exist.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := readShared(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Default(), nil
 	}
@@ -258,27 +276,35 @@ func Load(path string) (*Config, error) {
 }
 
 // Recover loads path. If the file cannot be used, it is set aside as
-// "<path>.broken" and the copy kept from the last successful save is used
-// instead, so a damaged file does not silently switch protection off.
-// problem describes what happened and is empty when the file was fine.
+// "<path>.broken" and the last working copy is used instead, so a damaged file
+// does not silently switch protection off. A damaged copy is set aside as well
+// and never overwritten. problem describes what happened and is empty when the
+// file was fine.
 func Recover(path string) (cfg *Config, problem string) {
 	cfg, err := Load(path)
 	if err == nil {
 		return cfg, ""
 	}
+	broken := filepath.Base(path) + ".broken"
 	os.Rename(path, path+".broken")
 	// Load treats a missing file as a first start, so check that a copy exists.
 	if _, serr := os.Stat(backupPath(path)); serr == nil {
-		if backup, berr := Load(backupPath(path)); berr == nil {
-			return backup, fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored, and the damaged file was kept as %s.", err, filepath.Base(path)+".broken")
+		backup, berr := Load(backupPath(path))
+		if berr == nil {
+			return backup, fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored, and the damaged file was kept as %s.", err, broken)
 		}
+		os.Rename(backupPath(path), backupPath(path)+".broken")
+		return Default(), fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. Both damaged files were kept with the ending .broken.", err, berr)
 	}
-	return Default(), fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. The damaged file was kept as %s.", err, filepath.Base(path)+".broken")
+	return Default(), fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. The damaged file was kept as %s.", err, broken)
 }
 
 func backupPath(path string) string { return path + ".last-good" }
 
-// Save writes the file atomically and keeps a copy for Recover.
+// Save replaces the file atomically. The version it replaces, if it is valid,
+// becomes the working copy for Recover, so the two files are never written
+// with the same content at the same moment. If either write fails, Save
+// returns an error before config.json has changed.
 func (c *Config) Save(path string) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
@@ -287,14 +313,12 @@ func (c *Config) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	for _, target := range []string{path, backupPath(path)} {
-		tmp := target + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, target); err != nil {
-			return err
-		}
+	previous, err := readShared(path)
+	if err != nil || json.Unmarshal(previous, &Config{}) != nil {
+		previous = data // the first save, or a damaged file: keep the new version
 	}
-	return nil
+	if err := writeAtomic(backupPath(path), previous); err != nil {
+		return err
+	}
+	return writeAtomic(path, data)
 }

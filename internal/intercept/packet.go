@@ -37,7 +37,9 @@ func parseIP(pkt []byte) (ipInfo, bool) {
 		}
 		src, _ := netip.AddrFromSlice(pkt[8:24])
 		dst, _ := netip.AddrFromSlice(pkt[24:40])
-		// Extension headers are not followed; such packets are passed on untouched.
+		// Extension headers are not followed. Such packets are not answered:
+		// outside strict mode they continue unchanged, in strict mode they
+		// are dropped.
 		return ipInfo{v6: true, hdrLen: 40, proto: pkt[6], src: src, dst: dst}, true
 	}
 	return ipInfo{}, false

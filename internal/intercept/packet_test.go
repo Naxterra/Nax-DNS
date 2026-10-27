@@ -13,7 +13,7 @@ func udp4Query(payload []byte) []byte {
 	binary.BigEndian.PutUint16(pkt[2:], uint16(len(pkt)))
 	pkt[8], pkt[9] = 128, protoUDP
 	copy(pkt[12:], []byte{10, 0, 0, 2})
-	copy(pkt[16:], []byte{10, 255, 255, 1})
+	copy(pkt[16:], []byte{192, 0, 2, 53})
 	binary.BigEndian.PutUint16(pkt[20:], 50000)
 	binary.BigEndian.PutUint16(pkt[22:], 53)
 	binary.BigEndian.PutUint16(pkt[24:], uint16(8+len(payload)))
@@ -24,7 +24,7 @@ func udp4Query(payload []byte) []byte {
 func TestUDPReplyIPv4ReversesEndpoints(t *testing.T) {
 	query := udp4Query([]byte("question-bytes"))
 	ip, ok := parseIP(query)
-	if !ok || ip.proto != protoUDP || ip.dst != netip.MustParseAddr("10.255.255.1") {
+	if !ok || ip.proto != protoUDP || ip.dst != netip.MustParseAddr("192.0.2.53") {
 		t.Fatalf("parseIP = %+v, %v", ip, ok)
 	}
 	answer := []byte("a-longer-answer-payload")

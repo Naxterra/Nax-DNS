@@ -43,6 +43,7 @@ func main() {
 		if cmd == "guard" {
 			name, h = guard.ServiceName, handler{run: runGuard}
 		}
+		secureDataDir()
 		setupLog(name, false)
 		if err := svc.Run(name, h); err != nil {
 			log.Fatal(err)
@@ -55,6 +56,7 @@ func main() {
 		if cmd == "guard" {
 			f = runGuard
 		}
+		secureDataDir()
 		setupLog(cmd, true)
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer cancel()
@@ -63,8 +65,14 @@ func main() {
 		}
 	case "install":
 		user := ""
-		if len(os.Args) > 3 && os.Args[2] == "--user" {
-			user = os.Args[3]
+		for i := 2; i < len(os.Args); i++ {
+			switch {
+			case os.Args[i] == "--user" && i+1 < len(os.Args):
+				user = os.Args[i+1]
+				i++
+			case os.Args[i] == "--keep-tray":
+				keepTray = true
+			}
 		}
 		exitOn(install(user))
 	case "uninstall":
@@ -114,6 +122,9 @@ func run(ctx context.Context) error {
 	defer engine.Close()
 	_, detail := engine.Interceptor.Status()
 	log.Printf("Nax-DNSManager %s started: %s", service.Version, detail)
+	if config.DirProblem != "" {
+		log.Print(config.DirProblem)
+	}
 	return engine.Serve(ctx)
 }
 
@@ -199,5 +210,13 @@ func test(urls []string) {
 		} else {
 			fmt.Printf("%-6s %9s %9s  %s  (%s)\n", upstream.Protocol(u.URL), "failed", "", u.URL, r.Error)
 		}
+	}
+}
+
+// secureDataDir restricts the data folder before anything is written to it.
+// A failure is reported in the app rather than stopping DNS handling.
+func secureDataDir() {
+	if err := config.SecureDir(); err != nil {
+		config.DirProblem = fmt.Sprintf("The data folder %s could not be secured (%v). Other Windows accounts may be able to change the configuration.", config.Dir(), err)
 	}
 }

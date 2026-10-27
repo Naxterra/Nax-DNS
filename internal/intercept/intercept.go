@@ -42,6 +42,7 @@ type Manager struct {
 	detail   string
 	want     bool
 	settings config.Settings
+	retrying bool
 }
 
 func NewManager(res *resolver.Resolver) *Manager {
@@ -75,6 +76,12 @@ func (m *Manager) restartLocked() error {
 	sess, err := start(m.res, m.settings, m.failed)
 	if err != nil {
 		m.detail = "Interception failed: " + err.Error()
+		// The driver may become available later, for example once the base
+		// filtering engine has started at boot.
+		if !m.retrying {
+			m.retrying = true
+			go m.retry(err)
+		}
 		return err
 	}
 	m.running = sess
@@ -100,21 +107,39 @@ func (m *Manager) failed(sess *session, err error) {
 	sess.stop()
 	m.running = nil
 	m.detail = "Interception failed: " + err.Error()
+	retrying := m.retrying
+	m.retrying = true
 	m.mu.Unlock()
+	if !retrying {
+		m.retry(err)
+	}
+}
 
+// retry starts interception again every few seconds until it runs or is no
+// longer wanted. Each distinct error is logged once.
+func (m *Manager) retry(last error) {
 	for {
 		time.Sleep(restartDelay)
 		m.mu.Lock()
 		if !m.want || m.running != nil {
+			m.retrying = false
 			m.mu.Unlock()
 			return
 		}
-		restartErr := m.restartLocked()
-		m.mu.Unlock()
-		if restartErr == nil {
+		// retrying stays true here, so a failing restartLocked does not start
+		// a second retry loop.
+		err := m.restartLocked()
+		if err == nil {
+			m.retrying = false
+			m.mu.Unlock()
 			log.Printf("intercept: capture restarted")
 			return
 		}
+		m.mu.Unlock()
+		if last == nil || err.Error() != last.Error() {
+			log.Printf("intercept: restart failed: %v", err)
+		}
+		last = err
 	}
 }
 
@@ -132,12 +157,17 @@ type session struct {
 	inFlight sync.WaitGroup
 	slots    chan struct{}
 
-	tcp       *divert.Handle
-	tcpDone   chan struct{}
-	tcpServer *dns.Server
-	tcpPort   uint16
-	flows     *flowTable
+	tcp         *divert.Handle
+	tcpDone     chan struct{}
+	tcpServer   *dns.Server
+	tcpListener net.Listener
+	tcpPort     uint16
+	flows       *flowTable
 }
+
+// ProxyPort is the TCP port of the built-in DNS-over-TCP proxy. The installer
+// opens Windows Firewall for the service on this port only.
+const ProxyPort = 48653
 
 // udpFilter selects DNS queries (QR bit clear), never the replies we inject
 // and never the service's own plain-DNS sockets.
@@ -204,6 +234,11 @@ func (s *session) stop() {
 	}
 	if s.tcpServer != nil {
 		s.tcpServer.Shutdown()
+	}
+	// Shutdown does nothing if the server had not started serving yet, so
+	// the listener is closed explicitly as well.
+	if s.tcpListener != nil {
+		s.tcpListener.Close()
 	}
 	s.inFlight.Wait()
 	s.udp.Close()
@@ -289,7 +324,9 @@ func (s *session) handleUDP(pkt []byte, ip ipInfo, addr divert.Address) {
 	defer cancel()
 	res := s.res.Resolve(ctx, req, resolver.Origin{Proto: "udp", Server: netip.AddrPortFrom(ip.dst, 53)})
 	if res.Passthrough {
-		s.udp.Send(pkt, &addr) // the resolver only asks for this outside strict mode
+		// The resolver only asks for this outside strict mode, but this
+		// session may be a strict one that is about to be replaced.
+		s.release(s.udp, pkt, &addr)
 		return
 	}
 	s.reply(pkt, ip, addr, req, res.Msg)
@@ -320,10 +357,16 @@ func (s *session) reply(pkt []byte, ip ipInfo, addr divert.Address, req, msg *dn
 // rewritten to look like the remote server. A loopback connection only has its
 // port changed. The listener accepts nothing but these redirected flows.
 func (s *session) startTCPProxy() error {
-	ln, err := net.Listen("tcp", ":0")
+	// The installer's firewall rule admits redirected connections only on
+	// ProxyPort. Another port works only if Windows Firewall allows it.
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ProxyPort))
 	if err != nil {
-		return err
+		log.Printf("intercept: TCP proxy port %d is busy (%v); using a random port", ProxyPort, err)
+		if ln, err = net.Listen("tcp", ":0"); err != nil {
+			return err
+		}
 	}
+	s.tcpListener = ln
 	s.tcpPort = uint16(ln.Addr().(*net.TCPAddr).Port)
 	s.flows = newFlowTable()
 	s.tcpServer = &dns.Server{
@@ -357,7 +400,9 @@ func (s *session) tcpLoop() {
 			continue
 		}
 		toProxy, client := redirectTCP(pkt, ip, addr.Loopback(), s.tcpPort)
-		if toProxy {
+		// Only a connection's first packet makes it acceptable, so later
+		// packets of the same flow cannot renew the key after the accept.
+		if toProxy && isSYN(pkt[ip.hdrLen:]) {
 			s.flows.add(client)
 		}
 		addr.SetOutbound(addr.Loopback())

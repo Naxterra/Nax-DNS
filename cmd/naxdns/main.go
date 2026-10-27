@@ -9,6 +9,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -42,6 +43,9 @@ func main() {
 	if len(os.Args) > 2 && os.Args[1] == "--window" {
 		runWindow(os.Args[2])
 		return
+	}
+	if len(os.Args) > 2 && os.Args[1] == "--after" {
+		waitForExit(os.Args[2]) // started by the previous version after an update
 	}
 	trayOnly := len(os.Args) > 1 && os.Args[1] == "--tray"
 	instanceFile := filepath.Join(dataDir(), "ui.url")
@@ -89,26 +93,47 @@ func (a *app) handler(host string) http.Handler {
 	proxy := &httputil.ReverseProxy{
 		Rewrite:   func(r *httputil.ProxyRequest) { r.SetURL(&url.URL{Scheme: "http", Host: "naxdns"}) },
 		Transport: a.client.Transport,
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"error":"The Nax-DNSManager service is not running.","serviceDown":true}`))
+			switch {
+			case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"This Windows account may not control the Nax-DNSManager service. Install it from this account to allow that.","serviceDown":true,"accessDenied":true}`))
+			case errors.Is(err, service.ErrNotService):
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"error":"The control pipe is not served by the Nax-DNSManager service.","serviceDown":true}`))
+			default:
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"error":"The Nax-DNSManager service is not running.","serviceDown":true}`))
+			}
 		},
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", proxy)
 	mux.HandleFunc("POST /local/install", func(w http.ResponseWriter, r *http.Request) {
-		// The installer grants this account access to the service's control pipe.
-		args := "install"
+		// The installer grants this account access to the service's control
+		// pipe, and leaves this tray running so it can report the result.
+		args := "install --keep-tray"
 		if user, err := windows.GetCurrentProcessToken().GetTokenUser(); err == nil {
 			args += " --user " + user.User.Sid.String()
 		}
-		if err := elevate(args); err != nil {
+		code, err := elevateWait(args)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil || code != 0 {
+			if err == nil {
+				err = fmt.Errorf("the installation failed (exit code %d); the details are in install.log in the Nax-DNSManager data folder", code)
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		w.Write([]byte(`{"ok":true}`))
+		// The installed files are a new version: hand over to it.
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			restartAfterInstall()
+			systray.Quit()
+		}()
 	})
 	mux.HandleFunc("/local/lang", handleLang)
 	mux.Handle("/", files)
@@ -135,18 +160,6 @@ func (a *app) handler(host string) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		mux.ServeHTTP(w, r)
 	})
-}
-
-// elevate runs Nax-DNSService.exe with a UAC prompt.
-func elevate(args string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	verb, _ := windows.UTF16PtrFromString("runas")
-	file, _ := windows.UTF16PtrFromString(filepath.Join(filepath.Dir(exe), "Nax-DNSService.exe"))
-	params, _ := windows.UTF16PtrFromString(args)
-	return windows.ShellExecute(0, verb, file, params, nil, windows.SW_HIDE)
 }
 
 func (a *app) setActive(active bool) {

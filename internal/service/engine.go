@@ -4,9 +4,11 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 
 	"naxdns/internal/config"
@@ -15,7 +17,7 @@ import (
 )
 
 // Version is shown in the UI.
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Engine struct {
 	mu   sync.Mutex
@@ -65,8 +67,11 @@ func clone(c *config.Config) *config.Config {
 	return out
 }
 
-// Apply validates, activates and persists a new configuration. If interception
-// cannot start, the configuration is kept but saved as inactive.
+// Apply validates, persists and activates a new configuration. The file is
+// saved first, because the guard follows the file: if saving fails, nothing
+// changes. If interception cannot start afterwards, the configuration stays
+// active on disk, so strict mode keeps failing closed, and the interceptor
+// keeps retrying in the background.
 func (e *Engine) Apply(next *config.Config) error {
 	next = clone(next)
 	if err := next.Validate(); err != nil {
@@ -74,32 +79,38 @@ func (e *Engine) Apply(next *config.Config) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	routingChanged := !reflect.DeepEqual(e.cfg.Upstreams, next.Upstreams) ||
-		!reflect.DeepEqual(e.cfg.Rules, next.Rules) || !reflect.DeepEqual(e.cfg.Settings, next.Settings)
+	prev := e.cfg
+	routingChanged := !reflect.DeepEqual(prev.Upstreams, next.Upstreams) ||
+		!reflect.DeepEqual(prev.Rules, next.Rules) || !reflect.DeepEqual(prev.Settings, next.Settings)
 	if routingChanged {
 		if err := e.Resolver.Reload(next); err != nil {
 			return err
 		}
 	}
-	var applyErr error
-	running, _ := e.Interceptor.Status()
-	if next.Active != running || !reflect.DeepEqual(e.cfg.Settings, next.Settings) {
-		if applyErr = e.Interceptor.Apply(next.Active, next.Settings); applyErr != nil {
-			next.Active = false
+	if err := next.Save(e.path); err != nil {
+		if routingChanged {
+			e.Resolver.Reload(prev)
 		}
+		return fmt.Errorf("the configuration could not be saved, so nothing was changed: %w", err)
 	}
 	e.cfg = next
-	if err := next.Save(e.path); err != nil {
-		return err
-	}
 	e.configProblem = ""
-	return applyErr
+	running, _ := e.Interceptor.Status()
+	if next.Active != prev.Active || (next.Active && !running) || !reflect.DeepEqual(prev.Settings, next.Settings) {
+		if err := e.Interceptor.Apply(next.Active, next.Settings); err != nil {
+			return fmt.Errorf("protection is on, but DNS interception could not start (%v); it is retried every few seconds", err)
+		}
+	}
+	return nil
 }
 
 // ConfigProblem returns the startup configuration problem, if any.
 func (e *Engine) ConfigProblem() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if config.DirProblem != "" {
+		return strings.TrimSpace(config.DirProblem + " " + e.configProblem)
+	}
 	return e.configProblem
 }
 

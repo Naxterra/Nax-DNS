@@ -2,6 +2,7 @@ package intercept
 
 import (
 	"encoding/binary"
+	"fmt"
 	"net"
 	"net/netip"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"naxdns/internal/config"
+	"naxdns/internal/ownports"
 )
 
 func TestFiltersCoverLoopbackOnlyWhenAsked(t *testing.T) {
@@ -24,7 +26,7 @@ func TestFiltersCoverLoopbackOnlyWhenAsked(t *testing.T) {
 
 func TestUDPFilterSkipsReservedPorts(t *testing.T) {
 	f := udpFilter(config.Settings{})
-	if !strings.Contains(f, "udp.SrcPort < 48600") || !strings.Contains(f, "udp.SrcPort > 48699") {
+	if !strings.Contains(f, fmt.Sprintf("udp.SrcPort < %d", ownports.Low)) || !strings.Contains(f, fmt.Sprintf("udp.SrcPort > %d", ownports.High)) {
 		t.Errorf("own plain-DNS ports are diverted: %q", f)
 	}
 }
@@ -43,7 +45,7 @@ func tcp4Packet(src, dst netip.Addr, sport, dport uint16) ([]byte, ipInfo) {
 }
 
 func TestRedirectReflectsRemoteConnections(t *testing.T) {
-	local, server := netip.MustParseAddr("192.168.8.229"), netip.MustParseAddr("10.255.255.1")
+	local, server := netip.MustParseAddr("198.51.100.20"), netip.MustParseAddr("192.0.2.53")
 	pkt, ip := tcp4Packet(local, server, 50123, 53)
 	toProxy, client := redirectTCP(pkt, ip, false, 6000)
 	got, _ := parseIP(pkt)
@@ -139,5 +141,21 @@ func TestFlowTableEntriesAreSingleUse(t *testing.T) {
 	ft.add(k)
 	if !ft.take(k) || ft.take(k) {
 		t.Error("a recorded flow must be accepted exactly once")
+	}
+}
+
+func TestOnlyTheFirstPacketOfAConnectionIsAccepted(t *testing.T) {
+	header := func(flags byte) []byte {
+		tcp := make([]byte, 20)
+		tcp[13] = flags
+		return tcp
+	}
+	if !isSYN(header(0x02)) {
+		t.Error("a SYN does not open a flow")
+	}
+	for name, flags := range map[string]byte{"SYN-ACK": 0x12, "ACK": 0x10, "data": 0x18, "FIN": 0x11} {
+		if isSYN(header(flags)) {
+			t.Errorf("a %s packet would renew the flow key", name)
+		}
 	}
 }

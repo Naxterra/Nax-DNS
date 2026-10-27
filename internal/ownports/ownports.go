@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math/rand/v2"
 	"net"
+	"net/netip"
 )
 
 // Low and High bound the reserved range. It lies below the Windows dynamic
@@ -15,18 +16,25 @@ import (
 // normally take these ports.
 const (
 	Low  = 48600
-	High = 48699
+	High = 48999
 )
 
 // Contains reports whether port is one of the reserved ports.
 func Contains(port uint16) bool { return port >= Low && port <= High }
 
-// ListenUDP opens a UDP socket on a free port from the reserved range.
-func ListenUDP(network string) (*net.UDPConn, error) {
+// DialUDP opens a UDP socket on a free port from the reserved range,
+// connected to server, so Windows delivers only datagrams from that server to
+// it.
+func DialUDP(server netip.AddrPort) (*net.UDPConn, error) {
+	network := "udp4"
+	if server.Addr().Is6() && !server.Addr().Is4In6() {
+		network = "udp6"
+	}
+	remote := net.UDPAddrFromAddrPort(server)
 	first := rand.IntN(High - Low + 1)
 	for i := 0; i <= High-Low; i++ {
 		port := Low + (first+i)%(High-Low+1)
-		conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
+		conn, err := net.DialUDP(network, &net.UDPAddr{Port: port}, remote)
 		if err == nil {
 			return conn, nil
 		}

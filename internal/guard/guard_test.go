@@ -1,10 +1,12 @@
 package guard
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"naxdns/internal/config"
+	"naxdns/internal/ownports"
 )
 
 func TestEnabledOnlyForActiveStrictMode(t *testing.T) {
@@ -29,7 +31,7 @@ func TestEnabledOnlyForActiveStrictMode(t *testing.T) {
 func TestFilterMatchesWhatTheResolverIntercepts(t *testing.T) {
 	s := config.Default().Settings
 	f := Filter(s)
-	for _, want := range []string{"outbound", "udp.DstPort == 53", "tcp.DstPort == 53", "udp.SrcPort < 48600", "udp.SrcPort > 48699"} {
+	for _, want := range []string{"outbound", "udp.DstPort == 53", "tcp.DstPort == 53", fmt.Sprintf("udp.SrcPort < %d", ownports.Low), fmt.Sprintf("udp.SrcPort > %d", ownports.High)} {
 		if !strings.Contains(f, want) {
 			t.Errorf("filter %q lacks %q", f, want)
 		}
@@ -45,5 +47,17 @@ func TestFilterMatchesWhatTheResolverIntercepts(t *testing.T) {
 	s.TCPMode = config.TCPAllow
 	if strings.Contains(Filter(s), "tcp") {
 		t.Error("TCP must not be blocked when it is explicitly allowed")
+	}
+}
+
+func TestStoppedGuardIsNotReportedAsRunning(t *testing.T) {
+	t.Setenv("NAXDNS_DATA", t.TempDir())
+	writeStatus(Status{Enabled: true})
+	if _, running := ReadStatus(); !running {
+		t.Fatal("a fresh report of a running guard was not recognised")
+	}
+	writeStatus(Status{Stopped: true})
+	if _, running := ReadStatus(); running {
+		t.Error("a guard that just stopped is reported as running")
 	}
 }

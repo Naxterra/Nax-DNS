@@ -68,6 +68,12 @@ func (l *redirectedOnly) Accept() (net.Conn, error) {
 	}
 }
 
+// isSYN reports whether a TCP header opens a connection (SYN set, ACK clear).
+func isSYN(tcp []byte) bool {
+	const syn, ack = 0x02, 0x10
+	return len(tcp) > 13 && tcp[13]&syn != 0 && tcp[13]&ack == 0
+}
+
 // redirectTCP rewrites one packet of a TCP/53 connection in place. A packet
 // to port 53 goes to the proxy; a packet from the proxy port goes back to the
 // client as if it came from port 53. Connections to a remote server are
