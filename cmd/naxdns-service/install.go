@@ -130,6 +130,24 @@ func serviceRunning(m *mgr.Mgr, name string) bool {
 	return err == nil && st.State == svc.Running
 }
 
+// startAndWaitForGuard starts the guard and waits up to five seconds for its
+// first report, which it writes after it has decided whether to block.
+func startAndWaitForGuard(m *mgr.Mgr) {
+	s, err := m.OpenService(guard.ServiceName)
+	if err != nil {
+		return
+	}
+	started := time.Now()
+	s.Start()
+	s.Close()
+	for deadline := started.Add(5 * time.Second); time.Now().Before(deadline); {
+		if st, running := guard.ReadStatus(); running && st.Updated.After(started) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -355,25 +373,28 @@ func install(user string) (err error) {
 		}
 	}
 	restartInTurn := func() {
-		// The resolver first, and the guard only once the resolver
-		// intercepts, so plain DNS is blocked at every moment. A guard that
-		// keeps running from the new files still blocks the same way.
+		// The guard must run before the resolver is cycled, so plain DNS is
+		// blocked at every moment. A stopped guard (its start may have been
+		// what failed) is started first from the restored files. A running
+		// guard keeps blocking from the new files and is restarted only once
+		// the resolver intercepts; if it never does, the guard stays as it is.
 		if created[serviceName] {
 			return
+		}
+		guardRunning := created[guard.ServiceName] || serviceRunning(m, guard.ServiceName)
+		if !guardRunning {
+			startAndWaitForGuard(m)
 		}
 		stopService(m, serviceName)
 		if s, err := m.OpenService(serviceName); err == nil {
 			s.Start()
 			s.Close()
 		}
-		if created[guard.ServiceName] || !waitIntercepting(15*time.Second) {
+		if created[guard.ServiceName] || !guardRunning || !waitIntercepting(15*time.Second) {
 			return
 		}
 		stopService(m, guard.ServiceName)
-		if s, err := m.OpenService(guard.ServiceName); err == nil {
-			s.Start()
-			s.Close()
-		}
+		startAndWaitForGuard(m)
 	}
 	restore := func(cause error) error {
 		if created[serviceName] {

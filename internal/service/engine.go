@@ -33,6 +33,9 @@ type Engine struct {
 	// from the app are refused then, so a stand-in configuration is never
 	// saved over the owner's real one.
 	pending bool
+	// reloaded is closed when reloadWhenReadable has switched to the saved
+	// configuration and ended.
+	reloaded chan struct{}
 
 	Resolver    *resolver.Resolver
 	Interceptor *intercept.Manager
@@ -56,6 +59,7 @@ func NewEngine() (*Engine, error) {
 	}
 	if rec.Retry {
 		e.pending = true
+		e.reloaded = make(chan struct{})
 		go e.reloadWhenReadable()
 	}
 	if err := e.Resolver.Reload(cfg); err != nil {
@@ -140,6 +144,7 @@ func (e *Engine) apply(next *config.Config, reload bool) error {
 // that was deleted or damaged meanwhile is handled like at startup instead of
 // being read as a first start with protection off.
 func (e *Engine) reloadWhenReadable() {
+	defer close(e.reloaded)
 	delay := time.Second
 	for {
 		time.Sleep(delay)
@@ -148,13 +153,25 @@ func (e *Engine) reloadWhenReadable() {
 		if rec.Retry {
 			continue
 		}
-		if err := e.apply(rec.Config, true); err != nil {
+		err := e.apply(rec.Config, true)
+		e.mu.Lock()
+		saved := !e.pending
+		if saved {
+			e.configProblem = rec.Problem
+		}
+		e.mu.Unlock()
+		if !saved {
 			log.Printf("the configuration is readable again but could not be applied: %v", err)
 			continue
 		}
-		e.mu.Lock()
-		e.configProblem = rec.Problem
-		e.mu.Unlock()
+		// Once saved, the configuration is in use and changes from the app
+		// are accepted again, so the loop ends here even if interception
+		// failed to start, which the interceptor keeps retrying by itself.
+		// Another round would apply an older read over such a change.
+		if err != nil {
+			log.Printf("the configuration is readable again and in use, but: %v", err)
+			return
+		}
 		log.Print("the configuration is readable again and in use")
 		return
 	}

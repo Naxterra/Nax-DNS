@@ -430,3 +430,26 @@ func TestSaveOverLockedFileChangesNothing(t *testing.T) {
 		t.Errorf("the configuration changed: %v, %+v", err, saved)
 	}
 }
+
+// Recovery and the save that follows it read the same damaged file; it must
+// be kept once, not twice.
+func TestRecoveredDamagedFileIsKeptOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	good := Default()
+	if err := good.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := Recover(path)
+	if !rec.Save {
+		t.Fatalf("recovery did not ask for a save: %q", rec.Problem)
+	}
+	if err := rec.Config.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if broken, _ := filepath.Glob(path + ".broken-*"); len(broken) != 1 {
+		t.Errorf("the damaged file was kept %d times: %v", len(broken), broken)
+	}
+}

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -404,6 +405,15 @@ func keepDamaged(path string) (message string, ok bool) {
 	}
 	if err != nil {
 		return fmt.Sprintf("The damaged file %s could not be copied (%v), so it was left in place.", filepath.Base(path), err), false
+	}
+	// Recover keeps the copy, and the save that follows it reads the same
+	// damaged file again; one copy of the same content is enough.
+	if copies, _ := filepath.Glob(path + ".broken-*"); len(copies) > 0 {
+		for _, c := range copies {
+			if kept, err := os.ReadFile(c); err == nil && bytes.Equal(kept, data) {
+				return fmt.Sprintf("The damaged file was kept as %s.", filepath.Base(c)), true
+			}
+		}
 	}
 	name := path + ".broken-" + time.Now().Format("20060102-150405.000000000")
 	if err := writeAtomic(name, data); err != nil {

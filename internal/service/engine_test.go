@@ -139,3 +139,43 @@ func TestPipeServedByAnotherProgramIsRefused(t *testing.T) {
 		t.Errorf("a pipe served by a test program was accepted as the service: %v", err)
 	}
 }
+
+// When the configuration becomes readable but interception cannot start, the
+// retry loop must still end once the configuration is saved and in use, so it
+// never applies an older read over a later change from the app.
+func TestReloadEndsOnceSavedEvenIfInterceptionFails(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NAXDNS_DATA", dir)
+	path := filepath.Join(dir, "config.json")
+	saved := config.Default()
+	saved.Active = true // WinDivert cannot load in tests, so interception fails
+	if err := saved.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine()
+	if err != nil {
+		windows.CloseHandle(h)
+		t.Fatal(err)
+	}
+	t.Cleanup(e.Close)
+	windows.CloseHandle(h)
+	select {
+	case <-e.reloaded:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the retry loop kept running after the configuration was saved and in use")
+	}
+	if !e.Config().Active {
+		t.Error("the saved configuration was not taken over")
+	}
+	next := e.Config()
+	next.Rules = append(next.Rules, config.Rule{ID: "own", Name: "own rule", Enabled: true, Domains: []string{"example.com"}, Action: config.ActionBlock})
+	e.Apply(next) // interception fails again, but the change is saved
+	if got, err := config.Load(path); err != nil || len(got.Rules) != len(next.Rules) {
+		t.Errorf("a change from the app was not kept after the reload: %v", err)
+	}
+}

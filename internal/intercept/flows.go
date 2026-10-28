@@ -33,6 +33,7 @@ type flowTable struct {
 	mu       sync.Mutex
 	flows    map[netip.AddrPort]flowEntry
 	accepted map[netip.AddrPort]flowEntry
+	pruned   time.Time // the last expiry sweep, so a flood does not sweep on every packet
 }
 
 func newFlowTable() *flowTable {
@@ -43,14 +44,13 @@ func (t *flowTable) add(remote netip.AddrPort, dst netip.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
-	if len(t.flows) >= 4096 {
+	if (len(t.flows) >= 4096 || len(t.accepted) >= 4096) && now.Sub(t.pruned) > time.Second {
 		prune(t.flows, now, flowTTL)
+		prune(t.accepted, now, acceptedTTL)
+		t.pruned = now
 	}
 	if len(t.flows) < maxFlows {
 		t.flows[remote] = flowEntry{at: now, dst: dst}
-	}
-	if len(t.accepted) >= 4096 {
-		prune(t.accepted, now, acceptedTTL)
 	}
 }
 

@@ -213,3 +213,26 @@ func TestFlowTableStaysBounded(t *testing.T) {
 		t.Error("pruning forgot the newest connections instead of the oldest")
 	}
 }
+
+// Under a flood of connections the expiry sweep runs at most once a second,
+// not on every new connection.
+func TestFlowTableSweepsAtMostOnceASecond(t *testing.T) {
+	ft := newFlowTable()
+	dst := netip.MustParseAddr("192.0.2.53")
+	old := time.Now().Add(-2 * flowTTL)
+	fill := func(base byte) {
+		for i := range 5000 {
+			ft.flows[netip.AddrPortFrom(netip.AddrFrom4([4]byte{base, 0, byte(i >> 8), byte(i)}), 5000)] = flowEntry{at: old, dst: dst}
+		}
+	}
+	fill(10)
+	ft.add(netip.MustParseAddrPort("172.16.0.1:5000"), dst)
+	if len(ft.flows) != 1 {
+		t.Fatalf("the first sweep left %d entries, want only the new one", len(ft.flows))
+	}
+	fill(11)
+	ft.add(netip.MustParseAddrPort("172.16.0.2:5000"), dst)
+	if len(ft.flows) != 5002 {
+		t.Errorf("a second sweep ran within the same second (%d entries left)", len(ft.flows))
+	}
+}
