@@ -73,6 +73,9 @@ type Settings struct {
 
 // Config is the whole persisted state. Upstream order is failover priority.
 type Config struct {
+	// Version is the schema version. Files without it come from 0.1.x or
+	// 0.2.x and are migrated when loaded.
+	Version   int        `json:"version"`
 	Active    bool       `json:"active"`
 	Upstreams []Upstream `json:"upstreams"`
 	Rules     []Rule     `json:"rules"`
@@ -83,7 +86,8 @@ type Config struct {
 // working chain until the user adds their NextDNS / Control D profiles.
 func Default() *Config {
 	return &Config{
-		Active: false,
+		Version: SchemaVersion,
+		Active:  false,
 		Upstreams: []Upstream{
 			{ID: "cloudflare", Name: "Cloudflare (DoH)", URL: "https://cloudflare-dns.com/dns-query", Enabled: true},
 			{ID: "quad9", Name: "Quad9 (DoH)", URL: "https://dns.quad9.net/dns-query", Enabled: true},
@@ -176,13 +180,23 @@ func (s *Settings) limits() []limit {
 // strict mode with TCP DNS proxied, which keeps strict mode's promise.
 func (c *Config) migrate() {
 	s := &c.Settings
+	if c.Version < 1 {
+		// 0.1.x saved parallel backup queries (1500 ms) as its default. They
+		// are off by default now, so a file from before is brought in line.
+		s.HedgeMs = 0
+	}
+	c.Version = SchemaVersion
 	for _, b := range s.limits() {
 		*b.value = min(max(*b.value, b.lo), b.hi)
 	}
+	s.CacheMinTTL = min(s.CacheMinTTL, s.CacheMaxTTL)
 	if s.OnFailure == FailServfail && s.TCPMode == TCPAllow {
 		s.TCPMode = TCPProxy
 	}
 }
+
+// SchemaVersion is the configuration format written by this version.
+const SchemaVersion = 1
 
 // ValidateUpstreamURL checks scheme and host of a server URL.
 func ValidateUpstreamURL(raw string) error {
@@ -259,6 +273,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%s must be between %d and %d", b.name, b.lo, b.hi)
 		}
 	}
+	if s.CacheMinTTL > s.CacheMaxTTL {
+		return errors.New("cacheMinTtl must not be larger than cacheMaxTtl")
+	}
 	for _, b := range s.BootstrapDoH {
 		u, err := url.Parse(b)
 		if err != nil || u.Scheme != "https" {
@@ -301,34 +318,84 @@ func Load(path string) (*Config, error) {
 	return c, c.Validate()
 }
 
-// Recover loads path. If the file cannot be used, it is set aside as
-// "<path>.broken" and the last working copy is used instead, so a damaged file
-// does not silently switch protection off. A damaged copy is set aside as well
-// and never overwritten. problem describes what happened and is empty when the
-// file was fine.
-func Recover(path string) (cfg *Config, problem string) {
-	cfg, err := Load(path)
-	if err == nil {
-		return cfg, ""
-	}
-	// The time in the name keeps every damaged file; os.Rename would replace
-	// an earlier one with the same name.
-	suffix := ".broken-" + time.Now().Format("20060102-150405")
-	broken := filepath.Base(path) + suffix
-	os.Rename(path, path+suffix)
-	// Load treats a missing file as a first start, so check that a copy exists.
-	if _, serr := os.Stat(backupPath(path)); serr == nil {
-		backup, berr := Load(backupPath(path))
-		if berr == nil {
-			return backup, fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored, and the damaged file was kept as %s.", err, broken)
-		}
-		os.Rename(backupPath(path), backupPath(path)+suffix)
-		return Default(), fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. Both damaged files were kept with the ending %s.", err, berr, suffix)
-	}
-	return Default(), fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. The damaged file was kept as %s.", err, broken)
+// Recovered is the outcome of Recover.
+type Recovered struct {
+	Config *Config
+	// Problem describes what happened; it is empty when the file was fine.
+	Problem string
+	// Save is true when config.json must be written from Config. It is false
+	// when the file is fine, or when it could only not be read for the moment,
+	// so that a newer valid file is never replaced by an older copy.
+	Save bool
 }
 
-func backupPath(path string) string { return path + ".last-good" }
+// Recover loads path. If the file is damaged, a copy of it is kept under a
+// name ending in ".broken-" and the time, and the last working copy is used,
+// so a damaged file does not silently switch protection off. A missing
+// config.json next to a working copy counts as damaged too. A file that is
+// only locked is retried and, if it stays unreadable, left alone. No
+// damaged file is ever overwritten.
+func Recover(path string) Recovered {
+	cfg, err := Load(path)
+	for i := 0; err != nil && !isDamage(err) && i < 30; i++ {
+		time.Sleep(100 * time.Millisecond) // a scanner or another reader holds it
+		cfg, err = Load(path)
+	}
+	backup := BackupPath(path)
+	_, statErr := os.Stat(path)
+	_, backupErr := os.Stat(backup)
+	if err == nil && (statErr == nil || backupErr != nil) {
+		return Recovered{Config: cfg}
+	}
+	if err == nil {
+		err = errors.New("config.json is missing")
+	}
+	saved, prev := Default(), error(nil)
+	if backupErr == nil {
+		saved, prev = Load(backup)
+	}
+	if err != nil && !isDamage(err) {
+		// Unreadable but not shown to be damaged: use the working copy for now
+		// and leave the file as it is.
+		if prev == nil && backupErr == nil {
+			return Recovered{Config: saved, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration is in use until it can be read again.", err)}
+		}
+		return Recovered{Config: Default(), Problem: fmt.Sprintf("The configuration could not be read (%v). Default settings are in use and protection is off.", err)}
+	}
+	kept := keepDamaged(path)
+	if backupErr == nil && prev == nil {
+		return Recovered{Config: saved, Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored. %s", err, kept)}
+	}
+	if backupErr == nil {
+		kept += " " + keepDamaged(backup)
+		return Recovered{Config: Default(), Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. %s", err, prev, kept)}
+	}
+	return Recovered{Config: Default(), Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. %s", err, kept)}
+}
+
+// isDamage reports whether a Load error means the content is unusable, as
+// opposed to the file being missing, locked or otherwise unreadable.
+func isDamage(err error) bool {
+	var pathErr *os.PathError
+	return !errors.As(err, &pathErr)
+}
+
+// keepDamaged copies a damaged file next to it under a name with the time,
+// to the nanosecond, so no earlier copy is replaced, and says what happened.
+func keepDamaged(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	name := path + ".broken-" + time.Now().Format("20060102-150405.000000000")
+	if err := writeAtomic(name, data); err != nil {
+		return fmt.Sprintf("The damaged file %s could not be kept (%v).", filepath.Base(path), err)
+	}
+	return fmt.Sprintf("The damaged file was kept as %s.", filepath.Base(name))
+}
+
+// BackupPath is the working copy that Save keeps next to path.
+func BackupPath(path string) string { return path + ".last-good" }
 
 // Save replaces the file atomically. The version it replaces, if it is valid,
 // becomes the working copy for Recover, so the two files are never written
@@ -346,7 +413,7 @@ func (c *Config) Save(path string) error {
 	if err != nil || json.Unmarshal(previous, &Config{}) != nil {
 		previous = data // the first save, or a damaged file: keep the new version
 	}
-	if err := writeAtomic(backupPath(path), previous); err != nil {
+	if err := writeAtomic(BackupPath(path), previous); err != nil {
 		return err
 	}
 	return writeAtomic(path, data)

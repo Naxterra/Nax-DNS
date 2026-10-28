@@ -12,6 +12,28 @@ import (
 	"naxdns/internal/config"
 )
 
+func TestLookupReturnsItsOwnLogEntry(t *testing.T) {
+	r := &Resolver{cache: newCache(), stop: make(chan struct{})}
+	r.st.Store(&state{
+		settings: config.Settings{TimeoutMs: 200, OnFailure: config.FailServfail},
+		rules:    compileRules([]config.Rule{{Name: "test", Enabled: true, Domains: []string{"blocked.example"}, Action: config.ActionBlock}}),
+		byID:     map[string]*server{},
+	})
+	first := new(dns.Msg)
+	first.SetQuestion("a.blocked.example.", dns.TypeA)
+	second := new(dns.Msg)
+	second.SetQuestion("b.blocked.example.", dns.TypeA)
+	res := r.Resolve(context.Background(), first, Origin{Proto: "test"})
+	r.Resolve(context.Background(), second, Origin{Proto: "test"})
+	if res.Entry.Name != "a.blocked.example" || res.Entry.Seq == 0 {
+		t.Errorf("the first lookup returned %+v instead of its own entry", res.Entry)
+	}
+	malformed := new(dns.Msg)
+	if got := r.Resolve(context.Background(), malformed, Origin{Proto: "test"}); got.Entry.Seq != 0 {
+		t.Errorf("a malformed query returned another query's entry: %+v", got.Entry)
+	}
+}
+
 // fakeServer answers with a fixed rcode after a delay, or fails.
 type fakeServer struct {
 	rcode int

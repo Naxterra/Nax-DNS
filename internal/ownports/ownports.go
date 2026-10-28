@@ -5,10 +5,15 @@
 package ownports
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"net"
 	"net/netip"
+	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // Low and High bound the reserved range. It lies below the Windows dynamic
@@ -40,4 +45,26 @@ func DialUDP(server netip.AddrPort) (*net.UDPConn, error) {
 		}
 	}
 	return nil, errors.New("no free port in the reserved range for plain DNS")
+}
+
+// DialTCP connects to server over TCP from a free port in the reserved range.
+func DialTCP(ctx context.Context, server netip.AddrPort) (net.Conn, error) {
+	first := rand.IntN(High - Low + 1)
+	var last error
+	for i := 0; i <= High-Low; i++ {
+		port := Low + (first+i)%(High-Low+1)
+		d := net.Dialer{LocalAddr: &net.TCPAddr{Port: port}}
+		conn, err := d.DialContext(ctx, "tcp", server.String())
+		if err == nil {
+			return conn, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		last = err
+		if !errors.Is(err, syscall.EADDRINUSE) && !errors.Is(err, windows.WSAEADDRINUSE) && !errors.Is(err, windows.WSAEACCES) {
+			return nil, err // the server refused or is unreachable; another port will not help
+		}
+	}
+	return nil, fmt.Errorf("no free port in the reserved range for plain DNS over TCP: %w", last)
 }

@@ -30,14 +30,18 @@ func SecureDir() error {
 		return os.MkdirAll(Dir(), 0o755) // development runs keep their own folder
 	}
 	name, _ := windows.UTF16PtrFromString(`Global\NaxDNS.SecureDir`)
+	// Both services and the installer may run this at the same time; only one
+	// may work on the folder at once.
 	mutex, err := windows.CreateMutex(nil, false, name)
-	if err == nil || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		windows.WaitForSingleObject(mutex, 10000)
-		defer func() {
-			windows.ReleaseMutex(mutex)
-			windows.CloseHandle(mutex)
-		}()
+	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		return fmt.Errorf("create the data folder lock: %w", err)
 	}
+	defer windows.CloseHandle(mutex)
+	event, err := windows.WaitForSingleObject(mutex, 30000)
+	if err != nil || (event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED) {
+		return fmt.Errorf("wait for the data folder lock: %v", err)
+	}
+	defer windows.ReleaseMutex(mutex)
 	enablePrivilege("SeTakeOwnershipPrivilege")
 	enablePrivilege("SeRestorePrivilege")
 
@@ -47,7 +51,12 @@ func SecureDir() error {
 	for attempt := 0; attempt < 5; attempt++ {
 		if fi, err := os.Lstat(dir); err == nil {
 			trusted, terr := ownedByAdmins(dir)
-			if terr == nil && trusted && fi.IsDir() && fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
+			if terr != nil {
+				// Never move the real folder aside because its owner could not
+				// be read for a moment; that would hide the configuration.
+				return fmt.Errorf("read the owner of the data folder: %w", terr)
+			}
+			if trusted && fi.IsDir() && fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
 				break
 			}
 			aside := dir + ".untrusted-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -153,6 +162,18 @@ func ownedByAdmins(path string) (bool, error) {
 // TrustedOwner reports whether sid is SYSTEM or the Administrators group.
 func TrustedOwner(sid *windows.SID) bool {
 	return sid != nil && (sid.IsWellKnown(windows.WinLocalSystemSid) || sid.IsWellKnown(windows.WinBuiltinAdministratorsSid))
+}
+
+// OwnByAdministrators makes the Administrators group the owner of a file
+// that an elevated program created. Depending on Windows policy such a file
+// may otherwise belong to the signed-in account, and SecureDir would delete
+// it as planted.
+func OwnByAdministrators(path string) error {
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, admins, nil, nil, nil)
 }
 
 func enablePrivilege(name string) {

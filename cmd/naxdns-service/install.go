@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 
 	"naxdns/internal/config"
@@ -55,10 +56,12 @@ func openInstallLog() func() {
 	if config.SecureDir() != nil {
 		return func() {}
 	}
-	f, err := os.OpenFile(filepath.Join(config.Dir(), "install.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	path := filepath.Join(config.Dir(), "install.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return func() {}
 	}
+	config.OwnByAdministrators(path)
 	out = io.MultiWriter(os.Stdout, f)
 	say("--- %s %s", time.Now().Format(time.RFC3339), strings.Join(os.Args[1:], " "))
 	return func() { out = os.Stdout; f.Close() }
@@ -241,6 +244,14 @@ func install(user string) (err error) {
 	if err := requireAdmin(); err != nil {
 		return err
 	}
+	// The event source lets the services report problems that cannot go to
+	// the data folder. It may already exist from an earlier installation.
+	eventlog.InstallAsEventCreate(eventSource, eventlog.Error|eventlog.Warning|eventlog.Info)
+	if err := config.SecureDir(); err != nil {
+		err = fmt.Errorf("the data folder could not be secured, so nothing was installed: %w", err)
+		reportEvent(err)
+		return err
+	}
 	defer openInstallLog()()
 	defer func() {
 		if err != nil {
@@ -263,6 +274,7 @@ func install(user string) (err error) {
 	defer m.Disconnect()
 
 	var swaps []swap
+	dirCreated := !fileExists(dstDir)
 	if !strings.EqualFold(srcDir, dstDir) {
 		if err := os.MkdirAll(dstDir, 0o755); err != nil {
 			return err
@@ -299,35 +311,54 @@ func install(user string) (err error) {
 		}
 	}
 	restore := func(cause error) error {
+		// The new resolver may already run; it must stop before its files go.
+		stopService(m, serviceName)
+		if created[guard.ServiceName] {
+			stopService(m, guard.ServiceName)
+		}
 		for i := len(swaps) - 1; i >= 0; i-- {
 			path := filepath.Join(dstDir, swaps[i].name)
 			if swaps[i].installed {
-				os.Remove(path)
+				removeLater(path) // a loaded driver goes at the next restart
 			}
 			if swaps[i].backedUp {
 				os.Rename(path+".old", path)
 			}
 			os.Remove(path + ".new")
 		}
-		if created[serviceName] {
-			for _, name := range []string{guard.ServiceName, serviceName} {
-				stopService(m, name)
-				if s, err := m.OpenService(name); err == nil {
-					s.Delete()
-					s.Close()
-				}
+		// Only services that this run created are deleted.
+		for _, name := range []string{guard.ServiceName, serviceName} {
+			if !created[name] {
+				continue
 			}
-			return fmt.Errorf("%w; nothing was installed", cause)
-		}
-		if created[guard.ServiceName] {
-			if s, err := m.OpenService(guard.ServiceName); err == nil {
+			if s, err := m.OpenService(name); err == nil {
 				s.Delete()
 				s.Close()
 			}
 		}
+		if created[serviceName] {
+			// A first installation: remove everything else it may have added.
+			exec.Command(system32("netsh.exe"), "advfirewall", "firewall", "delete", "rule", "name="+firewallRule).Run()
+			if k, err := registry.OpenKey(registry.LOCAL_MACHINE, runKey, registry.SET_VALUE); err == nil {
+				k.DeleteValue(serviceName)
+				k.Close()
+			}
+			shortcut("", false)
+			if dirCreated {
+				removeLater(dstDir)
+			}
+			return fmt.Errorf("%w; nothing was installed", cause)
+		}
 		if s, err := m.OpenService(serviceName); err == nil {
 			s.Start()
 			s.Close()
+		}
+		if !created[guard.ServiceName] {
+			stopService(m, guard.ServiceName)
+			if g, err := m.OpenService(guard.ServiceName); err == nil {
+				g.Start()
+				g.Close()
+			}
 		}
 		return fmt.Errorf("%w; the previous version was restored", cause)
 	}
@@ -379,7 +410,7 @@ func install(user string) (err error) {
 	// The resolver runs again, so restarting the guard cannot let DNS leak.
 	stopService(m, guard.ServiceName)
 	if err := g.Start(); err != nil {
-		return fmt.Errorf("start the guard service: %w", err)
+		return restore(fmt.Errorf("start the guard service: %w", err))
 	}
 
 	// Redirected TCP DNS reaches the service as inbound connections on the
@@ -397,15 +428,16 @@ func install(user string) (err error) {
 	}
 	shortcut(guiExe, true)
 	removeLegacyInstall(dstDir)
+	// A new version that starts but does not work is rolled back as well;
+	// the previous files are only deleted once the new version is ready.
+	ready, err := waitReady(m, 20*time.Second)
+	if err != nil {
+		return restore(err)
+	}
 	for _, sw := range swaps {
 		if sw.backedUp {
 			removeLater(filepath.Join(dstDir, sw.name+".old"))
 		}
-	}
-
-	ready, err := waitReady(m, 20*time.Second)
-	if err != nil {
-		return fmt.Errorf("installed in %s, but %w", dstDir, err)
 	}
 	say("Nax-DNSManager %s installed in %s and running: %s.", service.Version, dstDir, ready)
 	say("Start Nax-DNSManager from the Start menu to open the updated app.")
@@ -498,6 +530,11 @@ func uninstall() error {
 		return err
 	}
 	defer m.Disconnect()
+	// If the guard keeps running, removing the resolver would leave DNS
+	// blocked until the next restart, so nothing else is removed then.
+	if !stopService(m, guard.ServiceName) {
+		return errors.New("the guard service did not stop, so nothing was removed; try again or restart Windows first")
+	}
 	var problems []string
 	for _, name := range []string{guard.ServiceName, serviceName} {
 		if !stopService(m, name) {
@@ -516,6 +553,7 @@ func uninstall() error {
 		k.DeleteValue(serviceName)
 		k.Close()
 	}
+	eventlog.Remove(eventSource)
 	stopTray()
 	shortcut("", false)
 

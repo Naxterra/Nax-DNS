@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"golang.org/x/sys/windows/registry"
+
 	"naxdns/internal/config"
 	"naxdns/internal/divert"
 	"naxdns/internal/ownports"
@@ -45,7 +47,8 @@ func Filter(s config.Settings) string {
 	udp := fmt.Sprintf("(udp.DstPort == 53 and (udp.SrcPort < %d or udp.SrcPort > %d))", ownports.Low, ownports.High)
 	match := udp
 	if s.TCPMode != config.TCPAllow {
-		match = "(" + udp + " or tcp.DstPort == 53)"
+		tcp := fmt.Sprintf("(tcp.DstPort == 53 and (tcp.SrcPort < %d or tcp.SrcPort > %d))", ownports.Low, ownports.High)
+		match = "(" + udp + " or " + tcp + ")"
 	}
 	filter := "outbound and " + match
 	if !s.InterceptLoopback {
@@ -85,29 +88,71 @@ func writeStatus(st Status) {
 	}
 }
 
+// stateKey keeps the guard's last filter where only SYSTEM and Administrators
+// can write, so the guard can keep blocking even when the data folder cannot
+// be trusted.
+const stateKey = `SYSTEM\CurrentControlSet\Services\NaxDNSGuard\Parameters`
+
+func rememberFilter(filter string) {
+	k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, stateKey, registry.SET_VALUE)
+	if err != nil {
+		log.Printf("guard: state not saved: %v", err)
+		return
+	}
+	defer k.Close()
+	k.SetStringValue("Filter", filter)
+}
+
+func rememberedFilter() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, stateKey, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	filter, _, _ := k.GetStringValue("Filter")
+	return filter
+}
+
 // Run follows the saved configuration until ctx ends. An unreadable
 // configuration leaves the current state unchanged, so a damaged file never
-// opens the kill switch by itself.
-func Run(ctx context.Context) {
+// opens the kill switch by itself. Each decision is also remembered in the
+// registry. With trustedDir false the data folder could not be secured, so the
+// guard ignores it and keeps the remembered state instead: in strict mode it
+// keeps blocking although the resolver refuses to run.
+func Run(ctx context.Context, trustedDir bool) {
 	var handle *divert.Handle
 	current, lastErr := "", ""
-	os.MkdirAll(config.Dir(), 0o755)
+	report := func(st Status) {
+		if trustedDir {
+			writeStatus(st)
+		}
+	}
 	defer func() {
 		if handle != nil {
 			handle.Shutdown()
 			handle.Close()
 		}
-		writeStatus(Status{Stopped: true})
+		report(Status{Stopped: true})
 	}()
 	path := filepath.Join(config.Dir(), "config.json")
+	remembered := rememberedFilter()
 	tick := time.NewTicker(pollInterval)
 	defer tick.Stop()
 	for {
 		want := current
-		if cfg, err := config.Load(path); err == nil {
+		if !trustedDir {
+			want = remembered
+		} else if missingWithCopy(path) {
+			// The resolver is restoring config.json; Load would read the
+			// missing file as a first start and switch the guard off.
+		} else if cfg, err := config.Load(path); err == nil {
 			want = ""
 			if Enabled(cfg) {
 				want = Filter(cfg.Settings)
+			}
+			if want != remembered {
+				rememberFilter(want)
+				remembered = want
 			}
 		}
 		if want != current {
@@ -135,11 +180,21 @@ func Run(ctx context.Context) {
 				log.Printf("guard: off")
 			}
 		}
-		writeStatus(Status{Enabled: handle != nil, Filter: current, Error: lastErr})
+		report(Status{Enabled: handle != nil, Filter: current, Error: lastErr})
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
 		}
 	}
+}
+
+// missingWithCopy reports a config.json that is missing although a working
+// copy exists, which happens only while the configuration is being restored.
+func missingWithCopy(path string) bool {
+	if _, err := os.Stat(path); err == nil {
+		return false
+	}
+	_, err := os.Stat(config.BackupPath(path))
+	return err == nil
 }

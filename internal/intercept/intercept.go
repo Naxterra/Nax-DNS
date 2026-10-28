@@ -53,7 +53,13 @@ func NewManager(res *resolver.Resolver) *Manager {
 func (m *Manager) Status() (bool, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.running != nil, m.detail
+	detail := m.detail
+	if m.running != nil {
+		if p, _ := m.running.tcpProblem.Load().(string); p != "" {
+			detail += ", but " + p
+		}
+	}
+	return m.running != nil, detail
 }
 
 // Apply stops any running interception and, if active, starts it again with s.
@@ -160,6 +166,7 @@ type session struct {
 	tcp         *divert.Handle
 	tcpDone     chan struct{}
 	tcpServer   *dns.Server
+	tcpProblem  atomic.Value // string: why TCP interception does not fully work
 	tcpListener net.Listener
 	tcpPort     uint16
 	flows       *flowTable
@@ -183,9 +190,11 @@ func udpFilter(s config.Settings) string {
 // tcpFilter selects TCP/53 connections and, in proxy mode, the proxy's
 // replies on port proxyPort.
 func tcpFilter(s config.Settings, proxyPort uint16) string {
-	match := "tcp.DstPort == 53"
+	// The service's own TCP queries come from the reserved ports.
+	query := fmt.Sprintf("(tcp.DstPort == 53 and (tcp.SrcPort < %d or tcp.SrcPort > %d))", ownports.Low, ownports.High)
+	match := "tcp and " + query
 	if proxyPort != 0 {
-		match = fmt.Sprintf("tcp and (tcp.DstPort == 53 or tcp.SrcPort == %d)", proxyPort)
+		match = fmt.Sprintf("tcp and (%s or tcp.SrcPort == %d)", query, proxyPort)
 	}
 	if !s.InterceptLoopback {
 		return "outbound and !loopback and " + match
@@ -365,6 +374,7 @@ func (s *session) startTCPProxy() error {
 		if ln, err = net.Listen("tcp", ":0"); err != nil {
 			return err
 		}
+		s.tcpProblem.Store(fmt.Sprintf("the TCP/53 proxy runs on port %d, which the firewall rule does not cover, so TCP DNS may fail", ln.Addr().(*net.TCPAddr).Port))
 	}
 	s.tcpListener = ln
 	s.tcpPort = uint16(ln.Addr().(*net.TCPAddr).Port)
@@ -373,7 +383,12 @@ func (s *session) startTCPProxy() error {
 		Listener: &redirectedOnly{Listener: ln, flows: s.flows},
 		Handler:  dns.HandlerFunc(s.serveTCP), ReadTimeout: 10 * time.Second,
 	}
-	go s.tcpServer.ActivateAndServe()
+	go func() {
+		if err := s.tcpServer.ActivateAndServe(); err != nil && !s.stopping.Load() {
+			log.Printf("intercept: TCP proxy stopped: %v", err)
+			s.tcpProblem.Store("the TCP/53 proxy stopped (" + err.Error() + "), so TCP DNS fails")
+		}
+	}()
 
 	if s.tcp, err = divert.Open(tcpFilter(s.settings, s.tcpPort), divert.PriorityHighest, 0); err != nil {
 		return err
@@ -403,7 +418,7 @@ func (s *session) tcpLoop() {
 		// Only a connection's first packet makes it acceptable, so later
 		// packets of the same flow cannot renew the key after the accept.
 		if toProxy && isSYN(pkt[ip.hdrLen:]) {
-			s.flows.add(client)
+			s.flows.add(client, ip.dst.Unmap())
 		}
 		addr.SetOutbound(addr.Loopback())
 		s.tcp.Send(pkt, &addr)
@@ -411,13 +426,19 @@ func (s *session) tcpLoop() {
 }
 
 func (s *session) serveTCP(w dns.ResponseWriter, req *dns.Msg) {
-	// After redirection the connection's remote address is the DNS server the
-	// application dialled (127.0.0.1 or ::1 for a local resolver).
+	// The flow table knows which server the application dialled. On loopback
+	// the connection's remote address is only the client's own address, and
+	// a local resolver may listen on another loopback address such as
+	// 127.0.0.53.
 	origin := resolver.Origin{Proto: "tcp"}
 	if ra, ok := w.RemoteAddr().(*net.TCPAddr); ok {
-		if a, ok := netip.AddrFromSlice(ra.IP); ok {
-			origin.Server = netip.AddrPortFrom(a.Unmap(), 53)
+		remote := ra.AddrPort()
+		remote = netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port())
+		dst, ok := s.flows.destination(remote)
+		if !ok {
+			dst = remote.Addr()
 		}
+		origin.Server = netip.AddrPortFrom(dst, 53)
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, queryTimeout)
 	defer cancel()

@@ -189,8 +189,40 @@ func PlainExchange(ctx context.Context, server netip.AddrPort, req *dns.Msg) (*d
 		if err := resp.Unpack(buf[:n]); err != nil || resp.Id != out.Id || !sameQuestion(resp, out) {
 			continue
 		}
+		if resp.Truncated {
+			// The full answer does not fit into UDP; ask again over TCP.
+			if full, err := plainTCP(ctx, server, out); err == nil {
+				resp = full
+			}
+		}
 		resp.Id = req.Id
 		return resp, nil
+	}
+}
+
+// plainTCP sends query over TCP from a reserved port, which the interceptor
+// and the guard let through.
+func plainTCP(ctx context.Context, server netip.AddrPort, query *dns.Msg) (*dns.Msg, error) {
+	conn, err := ownports.DialTCP(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	}
+	dc := &dns.Conn{Conn: conn}
+	if err := dc.WriteMsg(query); err != nil {
+		return nil, err
+	}
+	for {
+		resp, err := dc.ReadMsg()
+		if err != nil {
+			return nil, err
+		}
+		if resp.Id == query.Id && sameQuestion(resp, query) {
+			return resp, nil
+		}
 	}
 }
 

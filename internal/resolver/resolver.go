@@ -36,6 +36,9 @@ type Origin struct {
 type Result struct {
 	Msg         *dns.Msg
 	Passthrough bool
+	// Entry is the query log line written for this query. Its Seq is zero
+	// when nothing was logged (a malformed query).
+	Entry Entry
 }
 
 // Entry is one line of the query log.
@@ -206,7 +209,7 @@ func (r *Resolver) LogSince(seq uint64) []Entry {
 	return append([]Entry{}, r.log[i:]...)
 }
 
-func (r *Resolver) record(e Entry, start time.Time) {
+func (r *Resolver) record(e Entry, start time.Time) Entry {
 	e.Time = start
 	e.Ms = float64(time.Since(start).Microseconds()) / 1000
 	r.total.Add(1)
@@ -230,6 +233,7 @@ func (r *Resolver) record(e Entry, start time.Time) {
 		r.log = append(r.log[:0], r.log[len(r.log)-logSize*3/4:]...)
 	}
 	r.logMu.Unlock()
+	return e
 }
 
 func reply(req *dns.Msg, rcode int) *dns.Msg {
@@ -268,8 +272,10 @@ func summarize(m *dns.Msg) string {
 }
 
 // Resolve handles one query.
-func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
+func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) (res Result) {
 	start := time.Now()
+	var last Entry
+	defer func() { res.Entry = last }()
 	if len(req.Question) != 1 {
 		return Result{Msg: reply(req, dns.RcodeFormatError)}
 	}
@@ -285,7 +291,7 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 	}
 	block := func(why string) Result {
 		e.Action, e.Rule, e.Rcode = "blocked", why, "NXDOMAIN"
-		r.record(e, start)
+		last = r.record(e, start)
 		return Result{Msg: reply(req, dns.RcodeNameError)}
 	}
 	strict := st.settings.OnFailure == config.FailServfail
@@ -295,13 +301,13 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 		// from one of the reserved ports that the guard lets through.
 		if o.Proto == "udp" && !strict {
 			e.Action = "passthrough"
-			r.record(e, start)
+			last = r.record(e, start)
 			return Result{Passthrough: true}
 		}
 		if o.Server.IsValid() {
 			if resp, err := upstream.PlainExchange(ctx, o.Server, req); err == nil {
 				e.Action, e.Rcode, e.Answer = "passthrough", dns.RcodeToString[resp.Rcode], summarize(resp)
-				r.record(e, start)
+				last = r.record(e, start)
 				return Result{Msg: resp}
 			}
 		}
@@ -309,7 +315,7 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 		if o.Proto == "test" {
 			e.Action, e.Rcode, e.Detail = "passthrough", "", "would be answered by the original DNS server"
 		}
-		r.record(e, start)
+		last = r.record(e, start)
 		return Result{Msg: reply(req, dns.RcodeServerFailure)}
 	}
 
@@ -348,7 +354,7 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 		if msg, isStale, ok := r.cache.get(key); ok {
 			if !isStale {
 				e.Action, e.Rcode, e.Answer = "cached", dns.RcodeToString[msg.Rcode], summarize(msg)
-				r.record(e, start)
+				last = r.record(e, start)
 				return Result{Msg: finish(req, msg)}
 			}
 			stale = msg
@@ -363,19 +369,19 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) Result {
 		}
 		e.Action, e.Server, e.Protocol = "resolved", srv.cfg.Name, srv.proto
 		e.Rcode, e.Answer = dns.RcodeToString[resp.Rcode], summarize(resp)
-		r.record(e, start)
+		last = r.record(e, start)
 		return Result{Msg: finish(req, resp)}
 	}
 	if stale != nil {
 		e.Action, e.Rcode, e.Answer = "stale", dns.RcodeToString[stale.Rcode], summarize(stale)
-		r.record(e, start)
+		last = r.record(e, start)
 		return Result{Msg: finish(req, stale)}
 	}
 	if st.settings.OnFailure == config.FailPassthrough && o.Proto != "test" {
 		return pass()
 	}
 	e.Action, e.Rcode = "failed", "SERVFAIL"
-	r.record(e, start)
+	last = r.record(e, start)
 	return Result{Msg: reply(req, dns.RcodeServerFailure)}
 }
 

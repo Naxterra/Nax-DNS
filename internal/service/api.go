@@ -38,7 +38,9 @@ const ControlUserValue = "ControlUser"
 // elevation. Other accounts on the PC cannot change the configuration. Without
 // a recorded account, only elevated programs can connect.
 func pipeSDDL() string {
-	sddl := "D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+	// Deny entries come first: no connection over the network (SMB), even
+	// with valid credentials.
+	sddl := "D:P(D;;GA;;;NU)(A;;GA;;;SY)(A;;GA;;;BA)"
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, ParametersKey, registry.QUERY_VALUE)
 	if err != nil {
 		return sddl
@@ -193,15 +195,12 @@ func (e *Engine) Handler() http.Handler {
 		req.SetQuestion(dns.Fqdn(body.Name), qtype)
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
-		e.Resolver.Resolve(ctx, req, resolver.Origin{Proto: "test"})
-		entries := e.Resolver.LogSince(0)
-		for i := len(entries) - 1; i >= 0; i-- {
-			if entries[i].Proto == "test" {
-				writeJSON(w, entries[i])
-				return
-			}
+		res := e.Resolver.Resolve(ctx, req, resolver.Origin{Proto: "test"})
+		if res.Entry.Seq == 0 {
+			fail(w, http.StatusBadRequest, errors.New("the name could not be looked up"))
+			return
 		}
-		writeJSON(w, map[string]string{})
+		writeJSON(w, res.Entry) // this lookup's own entry, even with others running
 	})
 
 	return mux

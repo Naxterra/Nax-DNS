@@ -208,21 +208,28 @@ func (a *app) trayReady() {
 		resp.Body.Close()
 		toggle.Enable()
 		active = st.Active
+		// The check mark shows the setting, which is what a click changes;
+		// the icon and tooltip show whether interception actually runs.
+		if st.Active {
+			toggle.Check()
+		} else {
+			toggle.Uncheck()
+		}
 		healthy := false
 		for _, s := range st.Servers {
 			healthy = healthy || s.Healthy
 		}
 		switch {
-		case !st.Intercepting:
-			toggle.Uncheck()
+		case !st.Active:
 			systray.SetIcon(icon(colorOff))
 			systray.SetTooltip(tr("Nax-DNSManager: off"))
+		case !st.Intercepting:
+			systray.SetIcon(icon(colorWarn))
+			systray.SetTooltip("Nax-DNSManager: " + tr(st.Detail))
 		case !healthy:
-			toggle.Check()
 			systray.SetIcon(icon(colorWarn))
 			systray.SetTooltip(tr("Nax-DNSManager: no DNS server reachable"))
 		default:
-			toggle.Check()
 			systray.SetIcon(icon(colorOn))
 			systray.SetTooltip("Nax-DNSManager: " + tr(st.Detail))
 		}

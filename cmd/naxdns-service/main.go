@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 
 	"naxdns/internal/config"
 	"naxdns/internal/guard"
@@ -119,6 +120,7 @@ func setupLog(name string, console bool) {
 
 func run(ctx context.Context) error {
 	if dirErr != nil {
+		reportEvent(dirErr)
 		return dirErr
 	}
 	engine, err := service.NewEngine()
@@ -133,10 +135,14 @@ func run(ctx context.Context) error {
 
 func runGuard(ctx context.Context) error {
 	if dirErr != nil {
-		return dirErr
+		// The guard keeps its remembered state rather than exiting, so strict
+		// mode stays closed while the resolver refuses to run.
+		reportEvent(dirErr)
+		guard.Run(ctx, false)
+		return nil
 	}
 	log.Printf("Nax-DNSManager guard %s started", service.Version)
-	guard.Run(ctx)
+	guard.Run(ctx, true)
 	return nil
 }
 
@@ -155,6 +161,9 @@ func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, status c
 	for {
 		select {
 		case err := <-done:
+			if err == dirErr && err != nil {
+				return true, exitUntrustedDataFolder
+			}
 			if err != nil {
 				log.Printf("service stopped: %v", err)
 				return false, 1
@@ -231,4 +240,20 @@ func secureDataDir() {
 	if err := config.SecureDir(); err != nil {
 		dirErr = fmt.Errorf("the data folder %s could not be secured, so the service does not use it: %w", config.Dir(), err)
 	}
+}
+
+// exitUntrustedDataFolder is the service-specific exit code with which the
+// resolver refuses to run on a data folder it could not secure.
+const exitUntrustedDataFolder = 2
+
+// eventSource is the Windows event log source the installer registers. The
+// event log is the only record that does not depend on the data folder.
+const eventSource = "Nax-DNSManager"
+
+func reportEvent(err error) {
+	if el, e := eventlog.Open(eventSource); e == nil {
+		el.Error(1, err.Error())
+		el.Close()
+	}
+	log.Print(err)
 }

@@ -21,7 +21,8 @@ func TestRecoverUsesLastWorkingCopy(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, problem := Recover(path)
+	rec := Recover(path)
+	cfg, problem := rec.Config, rec.Problem
 	if problem == "" || !strings.Contains(problem, "restored") {
 		t.Fatalf("problem = %q, want a report of the restored copy", problem)
 	}
@@ -38,14 +39,15 @@ func TestRecoverWithoutCopyReportsProtectionOff(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, problem := Recover(path)
+	rec := Recover(path)
+	cfg, problem := rec.Config, rec.Problem
 	if cfg.Active || !strings.Contains(problem, "protection is off") {
 		t.Errorf("active=%v problem=%q", cfg.Active, problem)
 	}
 }
 
 func TestRecoverMissingFileIsNotAProblem(t *testing.T) {
-	if _, problem := Recover(filepath.Join(t.TempDir(), "config.json")); problem != "" {
+	if problem := Recover(filepath.Join(t.TempDir(), "config.json")).Problem; problem != "" {
 		t.Errorf("first start reported %q", problem)
 	}
 }
@@ -61,7 +63,7 @@ func TestSaveKeepsThePreviousVersionAsWorkingCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	now, _ := Load(path)
-	kept, _ := Load(backupPath(path))
+	kept, _ := Load(BackupPath(path))
 	if !now.Active || kept.Active {
 		t.Errorf("config.json active=%v (want true), working copy active=%v (want false)", now.Active, kept.Active)
 	}
@@ -126,15 +128,16 @@ func TestSaveSucceedsWhileTheGuardReadsTheFile(t *testing.T) {
 func TestDamagedWorkingCopyIsKeptAndNeverOverwritten(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	os.WriteFile(path, []byte("{damaged"), 0o644)
-	os.WriteFile(backupPath(path), []byte("{also damaged"), 0o644)
-	cfg, problem := Recover(path)
+	os.WriteFile(BackupPath(path), []byte("{also damaged"), 0o644)
+	rec := Recover(path)
+	cfg, problem := rec.Config, rec.Problem
 	if cfg.Active || !strings.Contains(problem, "damaged too") {
 		t.Fatalf("active=%v problem=%q", cfg.Active, problem)
 	}
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	kept, _ := filepath.Glob(backupPath(path) + ".broken-*")
+	kept, _ := filepath.Glob(BackupPath(path) + ".broken-*")
 	if len(kept) != 1 {
 		t.Fatalf("the damaged working copy was not kept: %v", kept)
 	}
@@ -238,7 +241,8 @@ func TestOlderConfigurationIsMigratedInsteadOfDiscarded(t *testing.T) {
 	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, problem := Recover(path)
+	rec := Recover(path)
+	cfg, problem := rec.Config, rec.Problem
 	if problem != "" {
 		t.Fatalf("the older file was treated as damaged: %s", problem)
 	}
@@ -248,5 +252,84 @@ func TestOlderConfigurationIsMigratedInsteadOfDiscarded(t *testing.T) {
 	}
 	if s.TCPMode != TCPProxy || s.TimeoutMs != 500 || s.CooldownSec != 3600 || s.CacheMaxTTL != 10 {
 		t.Errorf("settings were not brought within bounds: tcp=%s timeout=%d cooldown=%d cacheMax=%d", s.TCPMode, s.TimeoutMs, s.CooldownSec, s.CacheMaxTTL)
+	}
+}
+
+// 0.1.x saved parallel backup queries after 1500 ms as its default; they are
+// off by default now, and an upgrade must not keep them on silently.
+func TestOldParallelQueryDefaultIsSwitchedOffOnUpgrade(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	old := `{"active":true,"upstreams":[{"id":"a","name":"A","url":"https://dns.example/dns-query","enabled":true}],"rules":[],"settings":{"timeoutMs":3000,"hedgeMs":1500,"onFailure":"servfail","cacheMinTtl":7200,"cacheMaxTtl":3600}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Settings.HedgeMs != 0 || cfg.Version != SchemaVersion {
+		t.Errorf("hedgeMs=%d version=%d after the upgrade, want 0 and %d", cfg.Settings.HedgeMs, cfg.Version, SchemaVersion)
+	}
+	if cfg.Settings.CacheMinTTL > cfg.Settings.CacheMaxTTL {
+		t.Errorf("minimum cache time %d is larger than the maximum %d", cfg.Settings.CacheMinTTL, cfg.Settings.CacheMaxTTL)
+	}
+	// A current file keeps the owner's choice.
+	cfg.Settings.HedgeMs = 800
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := Load(path); again.Settings.HedgeMs != 800 {
+		t.Errorf("the owner's own parallel query setting was reset to %d", again.Settings.HedgeMs)
+	}
+}
+
+// A file that another program holds open without sharing is not damaged and
+// must not be replaced by the older working copy.
+func TestLockedValidConfigurationIsNotTreatedAsDamaged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	older, newer := Default(), Default()
+	newer.Active = true
+	if err := older.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := newer.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		windows.CloseHandle(h)
+	}()
+	rec := Recover(path)
+	if rec.Save || !rec.Config.Active {
+		t.Errorf("a briefly locked valid file was replaced (save=%v, active=%v, problem=%q)", rec.Save, rec.Config.Active, rec.Problem)
+	}
+	if broken, _ := filepath.Glob(path + ".broken-*"); len(broken) != 0 {
+		t.Errorf("a valid file was kept as damaged: %v", broken)
+	}
+}
+
+// config.json missing next to a working copy is a recovery case, not a
+// first start with protection off.
+func TestMissingConfigurationNextToWorkingCopyIsRestored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	c := Default()
+	c.Active = true
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	rec := Recover(path)
+	if !rec.Config.Active || !rec.Save || rec.Problem == "" {
+		t.Errorf("active=%v save=%v problem=%q, want the working copy restored and reported", rec.Config.Active, rec.Save, rec.Problem)
 	}
 }

@@ -35,11 +35,17 @@ type Engine struct {
 func NewEngine() (*Engine, error) {
 	e := &Engine{path: filepath.Join(config.Dir(), "config.json"), Resolver: resolver.New()}
 	e.Interceptor = intercept.NewManager(e.Resolver)
-	cfg, problem := config.Recover(e.path)
-	if problem != "" {
-		log.Print(problem)
-		e.configProblem = problem
-		cfg.Save(e.path)
+	rec := config.Recover(e.path)
+	cfg := rec.Config
+	if rec.Problem != "" {
+		log.Print(rec.Problem)
+		e.configProblem = rec.Problem
+	}
+	if rec.Save {
+		if err := cfg.Save(e.path); err != nil {
+			e.configProblem += fmt.Sprintf(" The restored configuration could not be saved (%v).", err)
+			log.Print(e.configProblem)
+		}
 	}
 	if err := e.Resolver.Reload(cfg); err != nil {
 		return nil, err
@@ -73,6 +79,7 @@ func clone(c *config.Config) *config.Config {
 // keeps retrying in the background.
 func (e *Engine) Apply(next *config.Config) error {
 	next = clone(next)
+	next.Version = config.SchemaVersion // a change from the app is current by definition
 	if err := next.Validate(); err != nil {
 		return err
 	}

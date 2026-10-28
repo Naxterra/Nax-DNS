@@ -11,38 +11,69 @@ import (
 // flowTTL is how long a redirected SYN stays valid for the proxy to accept.
 const flowTTL = 30 * time.Second
 
+// acceptedTTL is how long the original destination of an accepted connection
+// is remembered for its queries.
+const acceptedTTL = time.Hour
+
+type flowEntry struct {
+	at  time.Time
+	dst netip.Addr // the DNS server the application dialled
+}
+
 // flowTable remembers connections the interceptor redirected to the proxy,
-// keyed by the address and port the proxy will see as the remote end.
+// keyed by the address and port the proxy will see as the remote end, and
+// the server each accepted connection was originally meant for.
 type flowTable struct {
-	mu    sync.Mutex
-	flows map[netip.AddrPort]time.Time
+	mu       sync.Mutex
+	flows    map[netip.AddrPort]flowEntry
+	accepted map[netip.AddrPort]flowEntry
 }
 
 func newFlowTable() *flowTable {
-	return &flowTable{flows: map[netip.AddrPort]time.Time{}}
+	return &flowTable{flows: map[netip.AddrPort]flowEntry{}, accepted: map[netip.AddrPort]flowEntry{}}
 }
 
-func (t *flowTable) add(remote netip.AddrPort) {
+func (t *flowTable) add(remote netip.AddrPort, dst netip.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
-	t.flows[remote] = now
+	t.flows[remote] = flowEntry{at: now, dst: dst}
 	if len(t.flows) > 4096 {
-		for k, seen := range t.flows {
-			if now.Sub(seen) > flowTTL {
+		for k, e := range t.flows {
+			if now.Sub(e.at) > flowTTL {
 				delete(t.flows, k)
+			}
+		}
+	}
+	if len(t.accepted) > 4096 {
+		for k, e := range t.accepted {
+			if now.Sub(e.at) > acceptedTTL {
+				delete(t.accepted, k)
 			}
 		}
 	}
 }
 
-// take reports whether remote was redirected recently and forgets it.
+// take reports whether remote was redirected recently, forgets the pending
+// redirect and remembers the connection's original destination.
 func (t *flowTable) take(remote netip.AddrPort) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	seen, ok := t.flows[remote]
+	e, ok := t.flows[remote]
 	delete(t.flows, remote)
-	return ok && time.Since(seen) <= flowTTL
+	if !ok || time.Since(e.at) > flowTTL {
+		return false
+	}
+	t.accepted[remote] = flowEntry{at: time.Now(), dst: e.dst}
+	return true
+}
+
+// destination returns the server an accepted connection was dialled to.
+func (t *flowTable) destination(remote netip.AddrPort) (netip.Addr, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	e, ok := t.accepted[remote]
+	return e.dst, ok
 }
 
 // redirectedOnly wraps the proxy's listener and closes every connection the

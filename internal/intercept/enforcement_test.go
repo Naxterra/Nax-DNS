@@ -120,7 +120,7 @@ func TestProxyAcceptsOnlyRedirectedConnections(t *testing.T) {
 	}
 	src := probe.Addr().(*net.TCPAddr)
 	probe.Close()
-	flows.add(src.AddrPort())
+	flows.add(src.AddrPort(), src.AddrPort().Addr())
 	d := net.Dialer{LocalAddr: src}
 	conn, err := d.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -138,7 +138,7 @@ func TestProxyAcceptsOnlyRedirectedConnections(t *testing.T) {
 func TestFlowTableEntriesAreSingleUse(t *testing.T) {
 	ft := newFlowTable()
 	k := netip.MustParseAddrPort("10.0.0.1:5000")
-	ft.add(k)
+	ft.add(k, netip.MustParseAddr("127.0.0.53"))
 	if !ft.take(k) || ft.take(k) {
 		t.Error("a recorded flow must be accepted exactly once")
 	}
@@ -157,5 +157,17 @@ func TestOnlyTheFirstPacketOfAConnectionIsAccepted(t *testing.T) {
 		if isSYN(header(flags)) {
 			t.Errorf("a %s packet would renew the flow key", name)
 		}
+	}
+}
+
+func TestAcceptedConnectionRemembersTheDialledServer(t *testing.T) {
+	ft := newFlowTable()
+	client := netip.MustParseAddrPort("127.0.0.1:50300")
+	ft.add(client, netip.MustParseAddr("127.0.0.53"))
+	if !ft.take(client) {
+		t.Fatal("redirected flow not accepted")
+	}
+	if dst, ok := ft.destination(client); !ok || dst != netip.MustParseAddr("127.0.0.53") {
+		t.Errorf("destination %v, %v; want the dialled 127.0.0.53 rather than the client's own address", dst, ok)
 	}
 }
