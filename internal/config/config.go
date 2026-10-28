@@ -373,7 +373,7 @@ func Recover(path string) Recovered {
 		if prev == nil && backupErr == nil {
 			return Recovered{Config: saved, Retry: true, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration is in use until it can be read again.", err)}
 		}
-		return Recovered{Config: Default(), Retry: true, Problem: fmt.Sprintf("The configuration could not be read (%v). Default settings are in use until it can be read again.", err)}
+		return Recovered{Config: Default(), Retry: true, Problem: fmt.Sprintf("The configuration could not be read (%v). Default settings are in use and protection is off until it can be read again.", err)}
 	}
 	kept, ok := keepDamaged(path)
 	if backupErr == nil && prev == nil {

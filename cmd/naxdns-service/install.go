@@ -325,12 +325,16 @@ func install(user string) (err error) {
 			path := filepath.Join(dstDir, swaps[i].name)
 			if swaps[i].installed {
 				if swaps[i].backedUp {
-					// The old file goes back to this path, so it must never
-					// be scheduled for deletion at the next restart.
-					if err := os.Remove(path); err != nil {
-						failed = append(failed, fmt.Sprintf("remove the new %s: %v", swaps[i].name, err))
+					// The old file goes back to this path, so the new one is
+					// moved to its own name first (that works even while a
+					// driver image is still loaded) and deleted from there,
+					// never from the path that receives the old file.
+					aside := path + ".rollback-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+					if err := os.Rename(path, aside); err != nil {
+						failed = append(failed, fmt.Sprintf("move the new %s aside: %v", swaps[i].name, err))
 						continue
 					}
+					removeLater(aside)
 				} else {
 					removeLater(path) // nothing returns to this path
 				}

@@ -39,7 +39,9 @@ func SecureDir() error {
 	mutex, err := windows.CreateMutex(nil, false, name)
 	if err == nil || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		defer windows.CloseHandle(mutex)
-		if event, werr := windows.WaitForSingleObject(mutex, 30000); werr == nil && (event == windows.WAIT_OBJECT_0 || event == windows.WAIT_ABANDONED) {
+		// A short wait: this runs before the service reports to Windows, which
+		// allows only about 30 seconds for that, and the guard rechecks with it.
+		if event, werr := windows.WaitForSingleObject(mutex, 3000); werr == nil && (event == windows.WAIT_OBJECT_0 || event == windows.WAIT_ABANDONED) {
 			defer windows.ReleaseMutex(mutex)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"golang.org/x/sys/windows"
 
 	"naxdns/internal/config"
 )
@@ -24,6 +25,43 @@ func newTestEngine(t *testing.T) *Engine {
 	}
 	t.Cleanup(e.Close)
 	return e
+}
+
+// A config.json that another program keeps locked at startup must not be
+// replaced by a change from the app, and must be picked up once it unlocks.
+func TestChangesWaitUntilTheSavedConfigurationCanBeRead(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NAXDNS_DATA", dir)
+	path := filepath.Join(dir, "config.json")
+	saved := config.Default()
+	saved.Rules = append(saved.Rules, config.Rule{ID: "own", Name: "own rule", Enabled: true, Domains: []string{"example.com"}, Action: config.ActionBlock})
+	if err := saved.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(config.BackupPath(path)) // no working copy: the stand-in is the defaults
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine()
+	if err != nil {
+		windows.CloseHandle(h)
+		t.Fatal(err)
+	}
+	t.Cleanup(e.Close)
+	if err := e.Apply(e.Config()); !errors.Is(err, errPending) {
+		t.Errorf("a change was accepted while the saved configuration was unreadable: %v", err)
+	}
+	windows.CloseHandle(h)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(e.Config().Rules) == len(saved.Rules) {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Errorf("the configuration was not picked up after it became readable: %d rules, want %d", len(e.Config().Rules), len(saved.Rules))
 }
 
 // In tests WinDivert cannot be loaded, so turning protection on always fails

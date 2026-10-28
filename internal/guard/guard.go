@@ -140,9 +140,13 @@ func Run(ctx context.Context, trustedDir bool, recheck func() error) {
 	remembered := rememberedFilter()
 	tick := time.NewTicker(pollInterval)
 	defer tick.Stop()
+	// The recheck runs in the background, so a stop request never waits for it.
+	rechecked := make(chan error, 1)
+	checking := false
 	for polls := 1; ; polls++ {
-		if !trustedDir && recheck != nil && polls%30 == 0 && recheck() == nil {
-			trustedDir = true
+		if !trustedDir && recheck != nil && !checking && polls%30 == 0 {
+			checking = true
+			go func() { rechecked <- recheck() }()
 		}
 		want := current
 		if !trustedDir {
@@ -189,6 +193,11 @@ func Run(ctx context.Context, trustedDir bool, recheck func() error) {
 		select {
 		case <-ctx.Done():
 			return
+		case err := <-rechecked:
+			checking = false
+			if err == nil {
+				trustedDir = true
+			}
 		case <-tick.C:
 		}
 	}

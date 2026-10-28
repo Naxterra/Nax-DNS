@@ -4,6 +4,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -28,6 +29,11 @@ type Engine struct {
 	// startup. It is shown in the app until the configuration is saved again.
 	configProblem string
 
+	// pending is set while config.json exists but cannot be read. Changes
+	// from the app are refused then, so a stand-in configuration is never
+	// saved over the owner's real one.
+	pending bool
+
 	Resolver    *resolver.Resolver
 	Interceptor *intercept.Manager
 }
@@ -49,6 +55,7 @@ func NewEngine() (*Engine, error) {
 		}
 	}
 	if rec.Retry {
+		e.pending = true
 		go e.reloadWhenReadable()
 	}
 	if err := e.Resolver.Reload(cfg); err != nil {
@@ -82,6 +89,13 @@ func clone(c *config.Config) *config.Config {
 // active on disk, so strict mode keeps failing closed, and the interceptor
 // keeps retrying in the background.
 func (e *Engine) Apply(next *config.Config) error {
+	return e.apply(next, false)
+}
+
+// errPending refuses changes while the saved configuration cannot be read.
+var errPending = errors.New("the saved configuration cannot be read at the moment, so changes are refused until it can; otherwise they would replace it")
+
+func (e *Engine) apply(next *config.Config, reload bool) error {
 	next = clone(next)
 	next.Version = config.SchemaVersion // a change from the app is current by definition
 	if err := next.Validate(); err != nil {
@@ -89,6 +103,9 @@ func (e *Engine) Apply(next *config.Config) error {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.pending && !reload {
+		return errPending
+	}
 	prev := e.cfg
 	routingChanged := !reflect.DeepEqual(prev.Upstreams, next.Upstreams) ||
 		!reflect.DeepEqual(prev.Rules, next.Rules) || !reflect.DeepEqual(prev.Settings, next.Settings)
@@ -105,6 +122,7 @@ func (e *Engine) Apply(next *config.Config) error {
 	}
 	e.cfg = next
 	e.configProblem = ""
+	e.pending = false
 	running, _ := e.Interceptor.Status()
 	if next.Active != prev.Active || (next.Active && !running) || !reflect.DeepEqual(prev.Settings, next.Settings) {
 		if err := e.Interceptor.Apply(next.Active, next.Settings); err != nil {
@@ -114,22 +132,30 @@ func (e *Engine) Apply(next *config.Config) error {
 	return nil
 }
 
-// reloadWhenReadable loads config.json again every second until it can be
-// read, for at most ten minutes, and then switches to it. Until then the
-// resolver uses a stand-in while the guard keeps its own state, so the two
-// may disagree; this ends the disagreement as soon as the file is readable.
+// reloadWhenReadable tries config.json again, every second at first and then
+// at most every 30 seconds, for as long as it cannot be read, and switches to
+// it once it can. Until then the resolver uses a stand-in while the guard
+// keeps its own state, so the two may disagree; this ends the disagreement as
+// soon as the file is readable. Each attempt goes through Recover, so a file
+// that was deleted or damaged meanwhile is handled like at startup instead of
+// being read as a first start with protection off.
 func (e *Engine) reloadWhenReadable() {
-	for i := 0; i < 600; i++ {
-		time.Sleep(time.Second)
-		cfg, err := config.Load(e.path)
-		if err != nil {
+	delay := time.Second
+	for {
+		time.Sleep(delay)
+		delay = min(delay*2, 30*time.Second)
+		rec := config.Recover(e.path)
+		if rec.Retry {
 			continue
 		}
-		if err := e.Apply(cfg); err != nil {
+		if err := e.apply(rec.Config, true); err != nil {
 			log.Printf("the configuration is readable again but could not be applied: %v", err)
-		} else {
-			log.Print("the configuration is readable again and in use")
+			continue
 		}
+		e.mu.Lock()
+		e.configProblem = rec.Problem
+		e.mu.Unlock()
+		log.Print("the configuration is readable again and in use")
 		return
 	}
 }
