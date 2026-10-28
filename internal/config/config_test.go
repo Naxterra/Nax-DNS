@@ -28,8 +28,8 @@ func TestRecoverUsesLastWorkingCopy(t *testing.T) {
 	if !cfg.Active || len(cfg.Upstreams) != 1 {
 		t.Errorf("the last working configuration was not restored: %+v", cfg)
 	}
-	if _, err := os.Stat(path + ".broken"); err != nil {
-		t.Errorf("the damaged file was not kept: %v", err)
+	if matches, _ := filepath.Glob(path + ".broken-*"); len(matches) != 1 {
+		t.Errorf("the damaged file was not kept: %v", matches)
 	}
 }
 
@@ -134,7 +134,11 @@ func TestDamagedWorkingCopyIsKeptAndNeverOverwritten(t *testing.T) {
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	if data, err := os.ReadFile(backupPath(path) + ".broken"); err != nil || string(data) != "{also damaged" {
+	kept, _ := filepath.Glob(backupPath(path) + ".broken-*")
+	if len(kept) != 1 {
+		t.Fatalf("the damaged working copy was not kept: %v", kept)
+	}
+	if data, err := os.ReadFile(kept[0]); err != nil || string(data) != "{also damaged" {
 		t.Errorf("the damaged working copy was not kept: %q, %v", data, err)
 	}
 }
@@ -220,5 +224,29 @@ func TestFilePlantedWithItsOwnPermissionsLosesThem(t *testing.T) {
 	}
 	if strings.Contains(sd.String(), ";;;WD)") {
 		t.Errorf("the planted entry for Everyone survived: %s", sd.String())
+	}
+}
+
+// Version 0.2.0 saved strict mode with TCP DNS allowed and accepted settings
+// outside today's bounds. Such a file must keep protection on after an
+// upgrade instead of being replaced by defaults.
+func TestOlderConfigurationIsMigratedInsteadOfDiscarded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	old := `{"active":true,"upstreams":[{"id":"a","name":"A","url":"https://dns.example/dns-query","enabled":true}],"rules":[],
+		"settings":{"timeoutMs":200,"hedgeMs":0,"failThreshold":3,"cooldownSec":7200,"onFailure":"servfail","cache":true,
+		"cacheMinTtl":0,"cacheMaxTtl":5,"interceptLoopback":true,"tcpMode":"allow"}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, problem := Recover(path)
+	if problem != "" {
+		t.Fatalf("the older file was treated as damaged: %s", problem)
+	}
+	s := cfg.Settings
+	if !cfg.Active || len(cfg.Upstreams) != 1 || s.OnFailure != FailServfail {
+		t.Errorf("protection or servers were lost: active=%v upstreams=%d onFailure=%s", cfg.Active, len(cfg.Upstreams), s.OnFailure)
+	}
+	if s.TCPMode != TCPProxy || s.TimeoutMs != 500 || s.CooldownSec != 3600 || s.CacheMaxTTL != 10 {
+		t.Errorf("settings were not brought within bounds: tcp=%s timeout=%d cooldown=%d cacheMax=%d", s.TCPMode, s.TimeoutMs, s.CooldownSec, s.CacheMaxTTL)
 	}
 }

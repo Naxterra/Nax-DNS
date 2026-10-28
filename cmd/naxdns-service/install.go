@@ -288,6 +288,16 @@ func install(user string) (err error) {
 	if !keepTray {
 		stopTray()
 	}
+	// Services that this run creates are removed again on failure, together
+	// with their settings, so a failed first installation leaves nothing behind.
+	created := map[string]bool{}
+	for _, name := range []string{serviceName, guard.ServiceName} {
+		if s, err := m.OpenService(name); err == nil {
+			s.Close()
+		} else {
+			created[name] = true
+		}
+	}
 	restore := func(cause error) error {
 		for i := len(swaps) - 1; i >= 0; i-- {
 			path := filepath.Join(dstDir, swaps[i].name)
@@ -298,6 +308,22 @@ func install(user string) (err error) {
 				os.Rename(path+".old", path)
 			}
 			os.Remove(path + ".new")
+		}
+		if created[serviceName] {
+			for _, name := range []string{guard.ServiceName, serviceName} {
+				stopService(m, name)
+				if s, err := m.OpenService(name); err == nil {
+					s.Delete()
+					s.Close()
+				}
+			}
+			return fmt.Errorf("%w; nothing was installed", cause)
+		}
+		if created[guard.ServiceName] {
+			if s, err := m.OpenService(guard.ServiceName); err == nil {
+				s.Delete()
+				s.Close()
+			}
 		}
 		if s, err := m.OpenService(serviceName); err == nil {
 			s.Start()

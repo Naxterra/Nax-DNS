@@ -19,10 +19,6 @@ import (
 // later trust or write to.
 const dirSDDL = "O:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
 
-// DirProblem describes a failure to secure the data folder at startup. It is
-// shown in the app next to configuration problems.
-var DirProblem string
-
 // SecureDir creates the data folder with restricted permissions or repairs
 // an existing one. A folder owned by another account is moved aside and
 // replaced, because files planted in it (links in particular) cannot be
@@ -46,28 +42,36 @@ func SecureDir() error {
 	enablePrivilege("SeRestorePrivilege")
 
 	dir := Dir()
-	if fi, err := os.Lstat(dir); err == nil {
-		trusted, terr := ownedByAdmins(dir)
-		if terr != nil {
-			return terr
-		}
-		if !trusted || fi.Mode()&os.ModeSymlink != 0 || fi.Mode()&os.ModeIrregular != 0 || !fi.IsDir() {
-			aside := dir + ".untrusted-" + strconv.FormatInt(time.Now().Unix(), 10)
+	// Another account may recreate the folder right after it was moved aside,
+	// so moving and creating are retried, and the result is checked at the end.
+	for attempt := 0; attempt < 5; attempt++ {
+		if fi, err := os.Lstat(dir); err == nil {
+			trusted, terr := ownedByAdmins(dir)
+			if terr == nil && trusted && fi.IsDir() && fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
+				break
+			}
+			aside := dir + ".untrusted-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 			if err := os.Rename(dir, aside); err != nil {
 				return fmt.Errorf("move the untrusted data folder aside: %w", err)
 			}
 		}
-	}
-	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
 		sd, err := windows.SecurityDescriptorFromString(dirSDDL)
 		if err != nil {
 			return err
 		}
 		sa := &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
 		path, _ := windows.UTF16PtrFromString(dir)
-		if err := windows.CreateDirectory(path, sa); err != nil {
+		if err := windows.CreateDirectory(path, sa); err == nil {
+			break
+		} else if !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 			return fmt.Errorf("create the data folder: %w", err)
 		}
+	}
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() || fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		return fmt.Errorf("the data folder could not be created safely: %v", err)
+	}
+	if trusted, err := ownedByAdmins(dir); err != nil || !trusted {
+		return fmt.Errorf("the data folder belongs to another account and could not be replaced: %v", err)
 	}
 	if err := applySDDL(dir, dirSDDL); err != nil {
 		return fmt.Errorf("restrict the data folder: %w", err)

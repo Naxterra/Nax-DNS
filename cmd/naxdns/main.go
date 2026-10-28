@@ -121,7 +121,7 @@ func (a *app) handler(host string) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil || code != 0 {
 			if err == nil {
-				err = fmt.Errorf("the installation failed (exit code %d); the details are in install.log in the Nax-DNSManager data folder", code)
+				err = fmt.Errorf("the installation failed (exit code %d). Run Nax-DNSService.exe install in an elevated terminal to see why, or open install.log in %%ProgramData%%\\NaxDNS as an administrator", code)
 			}
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

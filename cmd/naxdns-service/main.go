@@ -94,6 +94,9 @@ func exitOn(err error) {
 
 // setupLog writes to service.log, or to guard.log for the guard.
 func setupLog(name string, console bool) {
+	if dirErr != nil {
+		return // never write into a folder that could not be secured
+	}
 	os.MkdirAll(config.Dir(), 0o755)
 	file := "service.log"
 	if name == "guard" || name == guard.ServiceName {
@@ -115,6 +118,9 @@ func setupLog(name string, console bool) {
 }
 
 func run(ctx context.Context) error {
+	if dirErr != nil {
+		return dirErr
+	}
 	engine, err := service.NewEngine()
 	if err != nil {
 		return err
@@ -122,13 +128,13 @@ func run(ctx context.Context) error {
 	defer engine.Close()
 	_, detail := engine.Interceptor.Status()
 	log.Printf("Nax-DNSManager %s started: %s", service.Version, detail)
-	if config.DirProblem != "" {
-		log.Print(config.DirProblem)
-	}
 	return engine.Serve(ctx)
 }
 
 func runGuard(ctx context.Context) error {
+	if dirErr != nil {
+		return dirErr
+	}
 	log.Printf("Nax-DNSManager guard %s started", service.Version)
 	guard.Run(ctx)
 	return nil
@@ -169,7 +175,9 @@ func (h handler) Execute(_ []string, requests <-chan svc.ChangeRequest, status c
 }
 
 // test measures the configured servers, or the given URLs, and prints them
-// fastest first. It needs no elevation and does not touch live routing.
+// fastest first. It does not touch live routing. With URLs it needs no
+// elevation; without them it reads the saved configuration, which only
+// administrators may open.
 func test(urls []string) {
 	settings := config.Default().Settings
 	var servers []config.Upstream
@@ -213,10 +221,14 @@ func test(urls []string) {
 	}
 }
 
+// dirErr is set when the data folder could not be secured. Both services
+// then refuse to run, because a folder another account controls could hold a
+// planted configuration. Windows restarts them, which retries the check.
+var dirErr error
+
 // secureDataDir restricts the data folder before anything is written to it.
-// A failure is reported in the app rather than stopping DNS handling.
 func secureDataDir() {
 	if err := config.SecureDir(); err != nil {
-		config.DirProblem = fmt.Sprintf("The data folder %s could not be secured (%v). Other Windows accounts may be able to change the configuration.", config.Dir(), err)
+		dirErr = fmt.Errorf("the data folder %s could not be secured, so the service does not use it: %w", config.Dir(), err)
 	}
 }

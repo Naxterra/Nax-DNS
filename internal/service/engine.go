@@ -8,7 +8,6 @@ import (
 	"log"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 
 	"naxdns/internal/config"
@@ -108,9 +107,6 @@ func (e *Engine) Apply(next *config.Config) error {
 func (e *Engine) ConfigProblem() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if config.DirProblem != "" {
-		return strings.TrimSpace(config.DirProblem + " " + e.configProblem)
-	}
 	return e.configProblem
 }
 

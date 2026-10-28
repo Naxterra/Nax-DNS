@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Rule actions.
@@ -149,6 +150,40 @@ func (c *Config) Normalize() {
 	}
 }
 
+type limit struct {
+	name   string
+	value  *int
+	lo, hi int
+}
+
+// limits bounds the numeric settings. Validate rejects values outside them
+// when a change comes in, and migrate clamps them in saved files.
+func (s *Settings) limits() []limit {
+	return []limit{
+		{"timeoutMs", &s.TimeoutMs, 500, 15000},
+		{"hedgeMs", &s.HedgeMs, 0, 10000},
+		{"failThreshold", &s.FailThreshold, 1, 20},
+		{"cooldownSec", &s.CooldownSec, 1, 3600},
+		{"cacheMinTtl", &s.CacheMinTTL, 0, 86400},
+		{"cacheMaxTtl", &s.CacheMaxTTL, 10, 86400},
+	}
+}
+
+// migrate brings a file written by an older version within the rules that
+// Validate enforces today, so an upgrade never rejects a configuration that
+// the previous version accepted (which would switch protection off). Numbers
+// are clamped to their bounds, and strict mode with TCP DNS allowed becomes
+// strict mode with TCP DNS proxied, which keeps strict mode's promise.
+func (c *Config) migrate() {
+	s := &c.Settings
+	for _, b := range s.limits() {
+		*b.value = min(max(*b.value, b.lo), b.hi)
+	}
+	if s.OnFailure == FailServfail && s.TCPMode == TCPAllow {
+		s.TCPMode = TCPProxy
+	}
+}
+
 // ValidateUpstreamURL checks scheme and host of a server URL.
 func ValidateUpstreamURL(raw string) error {
 	u, err := url.Parse(raw)
@@ -219,18 +254,8 @@ func (c *Config) Validate() error {
 	if s.OnFailure == FailServfail && s.TCPMode == TCPAllow {
 		return errors.New("strict mode cannot let TCP DNS pass unencrypted; choose proxy or block for TCP DNS, or turn strict mode off")
 	}
-	for _, b := range []struct {
-		name          string
-		value, lo, hi int
-	}{
-		{"timeoutMs", s.TimeoutMs, 500, 15000},
-		{"hedgeMs", s.HedgeMs, 0, 10000},
-		{"failThreshold", s.FailThreshold, 1, 20},
-		{"cooldownSec", s.CooldownSec, 1, 3600},
-		{"cacheMinTtl", s.CacheMinTTL, 0, 86400},
-		{"cacheMaxTtl", s.CacheMaxTTL, 10, 86400},
-	} {
-		if b.value < b.lo || b.value > b.hi {
+	for _, b := range s.limits() {
+		if *b.value < b.lo || *b.value > b.hi {
 			return fmt.Errorf("%s must be between %d and %d", b.name, b.lo, b.hi)
 		}
 	}
@@ -272,6 +297,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	c.Normalize()
+	c.migrate()
 	return c, c.Validate()
 }
 
@@ -285,16 +311,19 @@ func Recover(path string) (cfg *Config, problem string) {
 	if err == nil {
 		return cfg, ""
 	}
-	broken := filepath.Base(path) + ".broken"
-	os.Rename(path, path+".broken")
+	// The time in the name keeps every damaged file; os.Rename would replace
+	// an earlier one with the same name.
+	suffix := ".broken-" + time.Now().Format("20060102-150405")
+	broken := filepath.Base(path) + suffix
+	os.Rename(path, path+suffix)
 	// Load treats a missing file as a first start, so check that a copy exists.
 	if _, serr := os.Stat(backupPath(path)); serr == nil {
 		backup, berr := Load(backupPath(path))
 		if berr == nil {
 			return backup, fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored, and the damaged file was kept as %s.", err, broken)
 		}
-		os.Rename(backupPath(path), backupPath(path)+".broken")
-		return Default(), fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. Both damaged files were kept with the ending .broken.", err, berr)
+		os.Rename(backupPath(path), backupPath(path)+suffix)
+		return Default(), fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. Both damaged files were kept with the ending %s.", err, berr, suffix)
 	}
 	return Default(), fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. The damaged file was kept as %s.", err, broken)
 }
