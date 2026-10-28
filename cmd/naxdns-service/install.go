@@ -246,10 +246,14 @@ func install(user string) (err error) {
 	}
 	// The event source lets the services report problems that cannot go to
 	// the data folder. It may already exist from an earlier installation.
-	eventlog.InstallAsEventCreate(eventSource, eventlog.Error|eventlog.Warning|eventlog.Info)
+	// A source created by this run is removed again if nothing gets installed.
+	eventCreated := eventlog.InstallAsEventCreate(eventSource, eventlog.Error|eventlog.Warning|eventlog.Info) == nil
 	if err := config.SecureDir(); err != nil {
 		err = fmt.Errorf("the data folder could not be secured, so nothing was installed: %w", err)
 		reportEvent(err)
+		if eventCreated {
+			eventlog.Remove(eventSource)
+		}
 		return err
 	}
 	defer openInstallLog()()
@@ -311,20 +315,42 @@ func install(user string) (err error) {
 		}
 	}
 	restore := func(cause error) error {
-		// The new resolver may already run; it must stop before its files go.
+		// Both services may already run from the new files, and a running
+		// image cannot be replaced, so both stop before any file is touched.
+		// The guard stays down only for the moment of the swap back.
 		stopService(m, serviceName)
-		if created[guard.ServiceName] {
-			stopService(m, guard.ServiceName)
-		}
+		stopService(m, guard.ServiceName)
+		var failed []string
 		for i := len(swaps) - 1; i >= 0; i-- {
 			path := filepath.Join(dstDir, swaps[i].name)
 			if swaps[i].installed {
-				removeLater(path) // a loaded driver goes at the next restart
+				if swaps[i].backedUp {
+					// The old file goes back to this path, so it must never
+					// be scheduled for deletion at the next restart.
+					if err := os.Remove(path); err != nil {
+						failed = append(failed, fmt.Sprintf("remove the new %s: %v", swaps[i].name, err))
+						continue
+					}
+				} else {
+					removeLater(path) // nothing returns to this path
+				}
 			}
 			if swaps[i].backedUp {
-				os.Rename(path+".old", path)
+				if err := os.Rename(path+".old", path); err != nil {
+					failed = append(failed, fmt.Sprintf("put the previous %s back: %v", swaps[i].name, err))
+				}
 			}
 			os.Remove(path + ".new")
+		}
+		if len(failed) > 0 {
+			// Say so plainly; the previous files stay as *.old for a manual fix.
+			for _, name := range []string{serviceName, guard.ServiceName} {
+				if s, err := m.OpenService(name); err == nil {
+					s.Start()
+					s.Close()
+				}
+			}
+			return fmt.Errorf("%w; restoring the previous version failed (%s), and the previous files are kept as *.old in %s", cause, strings.Join(failed, "; "), dstDir)
 		}
 		// Only services that this run created are deleted.
 		for _, name := range []string{guard.ServiceName, serviceName} {
@@ -347,17 +373,18 @@ func install(user string) (err error) {
 			if dirCreated {
 				removeLater(dstDir)
 			}
+			if eventCreated {
+				eventlog.Remove(eventSource)
+			}
 			return fmt.Errorf("%w; nothing was installed", cause)
 		}
-		if s, err := m.OpenService(serviceName); err == nil {
-			s.Start()
-			s.Close()
-		}
-		if !created[guard.ServiceName] {
-			stopService(m, guard.ServiceName)
-			if g, err := m.OpenService(guard.ServiceName); err == nil {
-				g.Start()
-				g.Close()
+		for _, name := range []string{serviceName, guard.ServiceName} {
+			if created[name] {
+				continue
+			}
+			if s, err := m.OpenService(name); err == nil {
+				s.Start()
+				s.Close()
 			}
 		}
 		return fmt.Errorf("%w; the previous version was restored", cause)

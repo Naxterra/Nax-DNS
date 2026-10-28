@@ -118,8 +118,10 @@ func rememberedFilter() string {
 // opens the kill switch by itself. Each decision is also remembered in the
 // registry. With trustedDir false the data folder could not be secured, so the
 // guard ignores it and keeps the remembered state instead: in strict mode it
-// keeps blocking although the resolver refuses to run.
-func Run(ctx context.Context, trustedDir bool) {
+// keeps blocking although the resolver refuses to run. recheck, if given, is
+// called every 30 seconds while the folder is untrusted; once it succeeds the
+// guard follows the configuration again.
+func Run(ctx context.Context, trustedDir bool, recheck func() error) {
 	var handle *divert.Handle
 	current, lastErr := "", ""
 	report := func(st Status) {
@@ -138,7 +140,10 @@ func Run(ctx context.Context, trustedDir bool) {
 	remembered := rememberedFilter()
 	tick := time.NewTicker(pollInterval)
 	defer tick.Stop()
-	for {
+	for polls := 1; ; polls++ {
+		if !trustedDir && recheck != nil && polls%30 == 0 && recheck() == nil {
+			trustedDir = true
+		}
 		want := current
 		if !trustedDir {
 			want = remembered

@@ -30,18 +30,19 @@ func SecureDir() error {
 		return os.MkdirAll(Dir(), 0o755) // development runs keep their own folder
 	}
 	name, _ := windows.UTF16PtrFromString(`Global\NaxDNS.SecureDir`)
-	// Both services and the installer may run this at the same time; only one
-	// may work on the folder at once.
+	// Both services and the installer may run this at the same time, so they
+	// take turns through a named lock. Any account can create or hold a
+	// global named object, though, so the lock is only best effort: if it is
+	// denied or not granted in time, the work goes ahead without it rather
+	// than letting another account keep the services from starting. The steps
+	// below are safe to repeat and end with a check of the result.
 	mutex, err := windows.CreateMutex(nil, false, name)
-	if err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		return fmt.Errorf("create the data folder lock: %w", err)
+	if err == nil || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+		defer windows.CloseHandle(mutex)
+		if event, werr := windows.WaitForSingleObject(mutex, 30000); werr == nil && (event == windows.WAIT_OBJECT_0 || event == windows.WAIT_ABANDONED) {
+			defer windows.ReleaseMutex(mutex)
+		}
 	}
-	defer windows.CloseHandle(mutex)
-	event, err := windows.WaitForSingleObject(mutex, 30000)
-	if err != nil || (event != windows.WAIT_OBJECT_0 && event != windows.WAIT_ABANDONED) {
-		return fmt.Errorf("wait for the data folder lock: %v", err)
-	}
-	defer windows.ReleaseMutex(mutex)
 	enablePrivilege("SeTakeOwnershipPrivilege")
 	enablePrivilege("SeRestorePrivilege")
 

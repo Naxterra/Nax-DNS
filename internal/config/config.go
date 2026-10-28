@@ -309,9 +309,18 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	c, err := parse(data)
+	if err != nil {
+		return c, fmt.Errorf("%s: %w", path, err)
+	}
+	return c, nil
+}
+
+// parse turns file content into a configuration that passes Validate.
+func parse(data []byte) (*Config, error) {
 	c := &Config{}
 	if err := json.Unmarshal(data, c); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 	c.Normalize()
 	c.migrate()
@@ -324,9 +333,13 @@ type Recovered struct {
 	// Problem describes what happened; it is empty when the file was fine.
 	Problem string
 	// Save is true when config.json must be written from Config. It is false
-	// when the file is fine, or when it could only not be read for the moment,
-	// so that a newer valid file is never replaced by an older copy.
+	// when the file is fine, when it could only not be read for the moment,
+	// so that a newer valid file is never replaced by an older copy, and when
+	// a damaged file could not be kept.
 	Save bool
+	// Retry is true when config.json exists but could not be read. The caller
+	// should load it again later and switch to it once it can be read.
+	Retry bool
 }
 
 // Recover loads path. If the file is damaged, a copy of it is kept under a
@@ -358,19 +371,19 @@ func Recover(path string) Recovered {
 		// Unreadable but not shown to be damaged: use the working copy for now
 		// and leave the file as it is.
 		if prev == nil && backupErr == nil {
-			return Recovered{Config: saved, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration is in use until it can be read again.", err)}
+			return Recovered{Config: saved, Retry: true, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration is in use until it can be read again.", err)}
 		}
-		return Recovered{Config: Default(), Problem: fmt.Sprintf("The configuration could not be read (%v). Default settings are in use and protection is off.", err)}
+		return Recovered{Config: Default(), Retry: true, Problem: fmt.Sprintf("The configuration could not be read (%v). Default settings are in use until it can be read again.", err)}
 	}
-	kept := keepDamaged(path)
+	kept, ok := keepDamaged(path)
 	if backupErr == nil && prev == nil {
-		return Recovered{Config: saved, Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored. %s", err, kept)}
+		return Recovered{Config: saved, Save: ok, Problem: fmt.Sprintf("The configuration could not be read (%v). The last working configuration was restored. %s", err, kept)}
 	}
 	if backupErr == nil {
-		kept += " " + keepDamaged(backup)
-		return Recovered{Config: Default(), Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. %s", err, prev, kept)}
+		keptCopy, okCopy := keepDamaged(backup)
+		return Recovered{Config: Default(), Save: ok && okCopy, Problem: fmt.Sprintf("The configuration could not be read (%v), and its working copy is damaged too (%v). Default settings are in use and protection is off. %s %s", err, prev, kept, keptCopy)}
 	}
-	return Recovered{Config: Default(), Save: true, Problem: fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. %s", err, kept)}
+	return Recovered{Config: Default(), Save: ok, Problem: fmt.Sprintf("The configuration could not be read (%v) and no working copy exists. Default settings are in use and protection is off. %s", err, kept)}
 }
 
 // isDamage reports whether a Load error means the content is unusable, as
@@ -382,16 +395,21 @@ func isDamage(err error) bool {
 
 // keepDamaged copies a damaged file next to it under a name with the time,
 // to the nanosecond, so no earlier copy is replaced, and says what happened.
-func keepDamaged(path string) string {
+// ok is false when a file exists but no copy could be made; it must then not
+// be overwritten.
+func keepDamaged(path string) (message string, ok bool) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", true // nothing to keep
+	}
 	if err != nil {
-		return ""
+		return fmt.Sprintf("The damaged file %s could not be copied (%v), so it was left in place.", filepath.Base(path), err), false
 	}
 	name := path + ".broken-" + time.Now().Format("20060102-150405.000000000")
 	if err := writeAtomic(name, data); err != nil {
-		return fmt.Sprintf("The damaged file %s could not be kept (%v).", filepath.Base(path), err)
+		return fmt.Sprintf("The damaged file %s could not be copied (%v), so it was left in place.", filepath.Base(path), err), false
 	}
-	return fmt.Sprintf("The damaged file was kept as %s.", filepath.Base(name))
+	return fmt.Sprintf("The damaged file was kept as %s.", filepath.Base(name)), true
 }
 
 // BackupPath is the working copy that Save keeps next to path.
@@ -410,8 +428,11 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	previous, err := readShared(path)
-	if err != nil || json.Unmarshal(previous, &Config{}) != nil {
-		previous = data // the first save, or a damaged file: keep the new version
+	if err == nil {
+		_, err = parse(previous)
+	}
+	if err != nil {
+		previous = data // the first save, or an unusable file: keep the new version
 	}
 	if err := writeAtomic(BackupPath(path), previous); err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"time"
 
 	"naxdns/internal/config"
 	"naxdns/internal/intercept"
@@ -46,6 +47,9 @@ func NewEngine() (*Engine, error) {
 			e.configProblem += fmt.Sprintf(" The restored configuration could not be saved (%v).", err)
 			log.Print(e.configProblem)
 		}
+	}
+	if rec.Retry {
+		go e.reloadWhenReadable()
 	}
 	if err := e.Resolver.Reload(cfg); err != nil {
 		return nil, err
@@ -108,6 +112,26 @@ func (e *Engine) Apply(next *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// reloadWhenReadable loads config.json again every second until it can be
+// read, for at most ten minutes, and then switches to it. Until then the
+// resolver uses a stand-in while the guard keeps its own state, so the two
+// may disagree; this ends the disagreement as soon as the file is readable.
+func (e *Engine) reloadWhenReadable() {
+	for i := 0; i < 600; i++ {
+		time.Sleep(time.Second)
+		cfg, err := config.Load(e.path)
+		if err != nil {
+			continue
+		}
+		if err := e.Apply(cfg); err != nil {
+			log.Printf("the configuration is readable again but could not be applied: %v", err)
+		} else {
+			log.Print("the configuration is readable again and in use")
+		}
+		return
+	}
 }
 
 // ConfigProblem returns the startup configuration problem, if any.

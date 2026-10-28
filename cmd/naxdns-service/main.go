@@ -136,13 +136,23 @@ func run(ctx context.Context) error {
 func runGuard(ctx context.Context) error {
 	if dirErr != nil {
 		// The guard keeps its remembered state rather than exiting, so strict
-		// mode stays closed while the resolver refuses to run.
+		// mode stays closed while the resolver refuses to run. It checks the
+		// folder again regularly and goes back to following the configuration
+		// once the folder is secure.
 		reportEvent(dirErr)
-		guard.Run(ctx, false)
+		guard.Run(ctx, false, func() error {
+			if err := config.SecureDir(); err != nil {
+				return err
+			}
+			dirErr = nil
+			setupLog(guard.ServiceName, false)
+			log.Printf("Nax-DNSManager guard %s: the data folder is secure again", service.Version)
+			return nil
+		})
 		return nil
 	}
 	log.Printf("Nax-DNSManager guard %s started", service.Version)
-	guard.Run(ctx, true)
+	guard.Run(ctx, true, nil)
 	return nil
 }
 

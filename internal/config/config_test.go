@@ -333,3 +333,49 @@ func TestMissingConfigurationNextToWorkingCopyIsRestored(t *testing.T) {
 		t.Errorf("active=%v save=%v problem=%q, want the working copy restored and reported", rec.Config.Active, rec.Save, rec.Problem)
 	}
 }
+
+// A file that is valid JSON but breaks the rules must not become the working
+// copy when the restored configuration is saved over it.
+func TestInvalidFileNeverReplacesTheWorkingCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	good := Default()
+	good.Active = true
+	if err := good.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	invalid := `{"version":1,"active":true,"upstreams":[],"rules":[],"settings":{}}` // active without servers
+	if err := os.WriteFile(path, []byte(invalid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := Recover(path)
+	if !rec.Save || !rec.Config.Active {
+		t.Fatalf("save=%v active=%v problem=%q", rec.Save, rec.Config.Active, rec.Problem)
+	}
+	if err := rec.Config.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if kept, err := Load(BackupPath(path)); err != nil || !kept.Active {
+		t.Errorf("the working copy was replaced by the invalid file: %v, %+v", err, kept)
+	}
+}
+
+// A file that stays locked is not replaced, and the caller is told to load
+// it again later instead of keeping the stand-in for good.
+func TestLockedFileAsksTheCallerToTryAgain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	c := Default()
+	c.Active = true
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(h)
+	rec := Recover(path)
+	if rec.Save || !rec.Retry {
+		t.Errorf("save=%v retry=%v, want the locked file left alone and a retry requested", rec.Save, rec.Retry)
+	}
+}
