@@ -2,8 +2,12 @@ package guard
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 
 	"naxdns/internal/config"
 	"naxdns/internal/ownports"
@@ -59,5 +63,44 @@ func TestStoppedGuardIsNotReportedAsRunning(t *testing.T) {
 	writeStatus(Status{Stopped: true})
 	if _, running := ReadStatus(); running {
 		t.Error("a guard that just stopped is reported as running")
+	}
+}
+
+// The guard must keep blocking when it starts while config.json is damaged or
+// locked, instead of reading that as protection off.
+func TestUnreadableConfigurationKeepsTheRememberedFilter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	remembered := Filter(config.Default().Settings)
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := wanted(path, remembered); got != remembered {
+		t.Errorf("a damaged configuration changed the guard to %q", got)
+	}
+
+	cfg := config.Default()
+	cfg.Active = true
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := wanted(path, remembered); got != remembered {
+		t.Errorf("a locked configuration changed the guard to %q", got)
+	}
+	windows.CloseHandle(h)
+
+	cfg.Active = false
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := wanted(path, remembered); got != "" {
+		t.Errorf("a readable configuration with protection off left the guard at %q", got)
 	}
 }

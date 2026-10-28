@@ -418,7 +418,9 @@ func BackupPath(path string) string { return path + ".last-good" }
 // Save replaces the file atomically. The version it replaces, if it is valid,
 // becomes the working copy for Recover, so the two files are never written
 // with the same content at the same moment. If either write fails, Save
-// returns an error before config.json has changed.
+// returns an error before config.json has changed. A damaged file is copied
+// aside like in Recover before it is replaced, and a file that exists but
+// cannot be read is not replaced at all.
 func (c *Config) Save(path string) error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
@@ -428,11 +430,18 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	previous, err := readShared(path)
-	if err == nil {
-		_, err = parse(previous)
-	}
-	if err != nil {
-		previous = data // the first save, or an unusable file: keep the new version
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		previous = data // the first save: keep the new version
+	case err != nil:
+		return fmt.Errorf("the current configuration could not be read, so it was not replaced: %w", err)
+	default:
+		if _, err := parse(previous); err != nil {
+			if kept, ok := keepDamaged(path); !ok {
+				return errors.New(kept)
+			}
+			previous = data
+		}
 	}
 	if err := writeAtomic(BackupPath(path), previous); err != nil {
 		return err

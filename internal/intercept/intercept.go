@@ -431,9 +431,7 @@ func (s *session) serveTCP(w dns.ResponseWriter, req *dns.Msg) {
 	// a local resolver may listen on another loopback address such as
 	// 127.0.0.53.
 	origin := resolver.Origin{Proto: "tcp"}
-	if ra, ok := w.RemoteAddr().(*net.TCPAddr); ok {
-		remote := ra.AddrPort()
-		remote = netip.AddrPortFrom(remote.Addr().Unmap(), remote.Port())
+	if remote, ok := proxyRemote(w.RemoteAddr()); ok {
 		dst, ok := s.flows.destination(remote)
 		if !ok {
 			dst = remote.Addr()

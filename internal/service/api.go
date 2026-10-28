@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -271,9 +270,6 @@ var procGetNamedPipeServerSessionId = windows.NewLazySystemDLL("kernel32.dll").N
 var ErrNotService = errors.New("the control pipe is not served by the Nax-DNSManager service")
 
 func verifyServer(conn net.Conn) error {
-	if os.Getenv("NAXDNS_DATA") != "" {
-		return nil // development runs serve the pipe from a console
-	}
 	f, ok := conn.(interface{ Fd() uintptr })
 	if !ok {
 		return ErrNotService

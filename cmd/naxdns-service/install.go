@@ -157,12 +157,32 @@ func sameContent(a, b string) bool {
 	return err1 == nil && err2 == nil && bytes.Equal(x, y)
 }
 
-// removeLater deletes path now, or at the next restart if it is in use.
+// removeLater deletes a file now, or at the next restart if it is in use. A
+// file in use is first moved to a name of its own, and only that name is
+// queued for deletion: a later installation may put a new file at the
+// original path before the restart, and Windows would delete that one
+// instead.
 func removeLater(path string) {
 	if err := os.Remove(path); err == nil || errors.Is(err, os.ErrNotExist) {
 		return
 	}
-	p, _ := windows.UTF16PtrFromString(path)
+	target := path
+	aside := path + ".delete-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if os.Rename(path, aside) == nil {
+		target = aside
+	}
+	p, _ := windows.UTF16PtrFromString(target)
+	windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+}
+
+// removeDirLater deletes an empty folder now, or queues it for the next
+// restart. Windows skips a queued folder that is not empty then, so a
+// reinstalled program folder is never deleted.
+func removeDirLater(dir string) {
+	if err := os.Remove(dir); err == nil || errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	p, _ := windows.UTF16PtrFromString(dir)
 	windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
 }
 
@@ -246,7 +266,6 @@ func install(user string) (err error) {
 	}
 	// The event source lets the services report problems that cannot go to
 	// the data folder. It may already exist from an earlier installation.
-	// A source created by this run is removed again if nothing gets installed.
 	eventCreated := eventlog.InstallAsEventCreate(eventSource, eventlog.Error|eventlog.Warning|eventlog.Info) == nil
 	if err := config.SecureDir(); err != nil {
 		err = fmt.Errorf("the data folder could not be secured, so nothing was installed: %w", err)
@@ -256,6 +275,13 @@ func install(user string) (err error) {
 		}
 		return err
 	}
+	// A failed run takes back an event source it created, whether it fails
+	// before anything else is changed or rolls back.
+	defer func() {
+		if err != nil && eventCreated {
+			eventlog.Remove(eventSource)
+		}
+	}()
 	defer openInstallLog()()
 	defer func() {
 		if err != nil {
@@ -299,45 +325,78 @@ func install(user string) (err error) {
 	}
 
 	if !stopService(m, serviceName) {
+		// It may be half stopped; let it run again and leave nothing behind.
+		for _, sw := range swaps {
+			os.Remove(filepath.Join(dstDir, sw.name+".new"))
+		}
+		if s, err := m.OpenService(serviceName); err == nil {
+			s.Start()
+			s.Close()
+		}
 		return errors.New("the running service did not stop, so nothing was changed")
 	}
 	if !keepTray {
 		stopTray()
 	}
 	// Services that this run creates are removed again on failure, together
-	// with their settings, so a failed first installation leaves nothing behind.
+	// with their settings, so a failed first installation leaves nothing
+	// behind. The settings of services that already exist are kept, so a
+	// rollback can point them at their previous program again.
 	created := map[string]bool{}
+	previous := map[string]mgr.Config{}
 	for _, name := range []string{serviceName, guard.ServiceName} {
 		if s, err := m.OpenService(name); err == nil {
+			if c, err := s.Config(); err == nil {
+				previous[name] = c
+			}
 			s.Close()
 		} else {
 			created[name] = true
 		}
 	}
-	restore := func(cause error) error {
-		// Both services may already run from the new files, and a running
-		// image cannot be replaced, so both stop before any file is touched.
-		// The guard stays down only for the moment of the swap back.
+	restartInTurn := func() {
+		// The resolver first, and the guard only once the resolver
+		// intercepts, so plain DNS is blocked at every moment. A guard that
+		// keeps running from the new files still blocks the same way.
+		if created[serviceName] {
+			return
+		}
 		stopService(m, serviceName)
+		if s, err := m.OpenService(serviceName); err == nil {
+			s.Start()
+			s.Close()
+		}
+		if created[guard.ServiceName] || !waitIntercepting(15*time.Second) {
+			return
+		}
 		stopService(m, guard.ServiceName)
+		if s, err := m.OpenService(guard.ServiceName); err == nil {
+			s.Start()
+			s.Close()
+		}
+	}
+	restore := func(cause error) error {
+		if created[serviceName] {
+			// A first installation had no protection before, so its services
+			// can simply stop before their files go.
+			stopService(m, guard.ServiceName)
+			stopService(m, serviceName)
+		}
+		// Files are swapped back by renaming, which works while a program or
+		// driver is still running from them, so in an upgrade the guard keeps
+		// blocking until the previous version runs again.
 		var failed []string
 		for i := len(swaps) - 1; i >= 0; i-- {
 			path := filepath.Join(dstDir, swaps[i].name)
 			if swaps[i].installed {
-				if swaps[i].backedUp {
-					// The old file goes back to this path, so the new one is
-					// moved to its own name first (that works even while a
-					// driver image is still loaded) and deleted from there,
-					// never from the path that receives the old file.
-					aside := path + ".rollback-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-					if err := os.Rename(path, aside); err != nil {
-						failed = append(failed, fmt.Sprintf("move the new %s aside: %v", swaps[i].name, err))
-						continue
-					}
-					removeLater(aside)
-				} else {
-					removeLater(path) // nothing returns to this path
+				// The new file goes to a name of its own and is deleted from
+				// there, never from the path that receives the old file.
+				aside := path + ".rollback-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+				if err := os.Rename(path, aside); err != nil {
+					failed = append(failed, fmt.Sprintf("move the new %s aside: %v", swaps[i].name, err))
+					continue
 				}
+				removeLater(aside)
 			}
 			if swaps[i].backedUp {
 				if err := os.Rename(path+".old", path); err != nil {
@@ -346,14 +405,17 @@ func install(user string) (err error) {
 			}
 			os.Remove(path + ".new")
 		}
-		if len(failed) > 0 {
-			// Say so plainly; the previous files stay as *.old for a manual fix.
-			for _, name := range []string{serviceName, guard.ServiceName} {
-				if s, err := m.OpenService(name); err == nil {
-					s.Start()
-					s.Close()
+		for name, c := range previous {
+			if s, err := m.OpenService(name); err == nil {
+				if err := s.UpdateConfig(c); err != nil {
+					failed = append(failed, fmt.Sprintf("point %s at its previous program: %v", name, err))
 				}
+				s.Close()
 			}
+		}
+		if len(failed) > 0 && !created[serviceName] {
+			// Say so plainly; the previous files stay as *.old for a manual fix.
+			restartInTurn()
 			return fmt.Errorf("%w; restoring the previous version failed (%s), and the previous files are kept as *.old in %s", cause, strings.Join(failed, "; "), dstDir)
 		}
 		// Only services that this run created are deleted.
@@ -361,6 +423,7 @@ func install(user string) (err error) {
 			if !created[name] {
 				continue
 			}
+			stopService(m, name)
 			if s, err := m.OpenService(name); err == nil {
 				s.Delete()
 				s.Close()
@@ -375,22 +438,14 @@ func install(user string) (err error) {
 			}
 			shortcut("", false)
 			if dirCreated {
-				removeLater(dstDir)
+				removeDirLater(dstDir)
 			}
-			if eventCreated {
-				eventlog.Remove(eventSource)
+			if len(failed) > 0 {
+				return fmt.Errorf("%w; the installation was removed, but some files remain in %s (%s)", cause, dstDir, strings.Join(failed, "; "))
 			}
 			return fmt.Errorf("%w; nothing was installed", cause)
 		}
-		for _, name := range []string{serviceName, guard.ServiceName} {
-			if created[name] {
-				continue
-			}
-			if s, err := m.OpenService(name); err == nil {
-				s.Start()
-				s.Close()
-			}
-		}
+		restartInTurn()
 		return fmt.Errorf("%w; the previous version was restored", cause)
 	}
 	for i := range swaps {
@@ -438,7 +493,11 @@ func install(user string) (err error) {
 	if err := s.Start(); err != nil {
 		return restore(fmt.Errorf("start the new service: %w", err))
 	}
-	// The resolver runs again, so restarting the guard cannot let DNS leak.
+	// Once the resolver intercepts again, restarting the guard cannot let
+	// DNS leak.
+	if !waitIntercepting(15 * time.Second) {
+		return restore(errors.New("the new service did not start intercepting"))
+	}
 	stopService(m, guard.ServiceName)
 	if err := g.Start(); err != nil {
 		return restore(fmt.Errorf("start the guard service: %w", err))
@@ -458,13 +517,14 @@ func install(user string) (err error) {
 		k.Close()
 	}
 	shortcut(guiExe, true)
-	removeLegacyInstall(dstDir)
-	// A new version that starts but does not work is rolled back as well;
-	// the previous files are only deleted once the new version is ready.
+	// A new version that starts but does not work is rolled back as well.
+	// The previous files, and the folder of an installation from before the
+	// rename, are only deleted once the new version is ready.
 	ready, err := waitReady(m, 20*time.Second)
 	if err != nil {
 		return restore(err)
 	}
+	removeLegacyInstall(dstDir)
 	for _, sw := range swaps {
 		if sw.backedUp {
 			removeLater(filepath.Join(dstDir, sw.name+".old"))
@@ -534,6 +594,31 @@ func waitReady(m *mgr.Mgr, limit time.Duration) (string, error) {
 	return "", errors.New(problem)
 }
 
+// waitIntercepting waits until the resolver answers and either intercepts or
+// has protection off, so that stopping the guard opens no gap.
+func waitIntercepting(limit time.Duration) bool {
+	client := service.PipeClient()
+	client.Timeout = 2 * time.Second
+	deadline := time.Now().Add(limit)
+	for time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+		resp, err := client.Get("http://naxdns/api/state")
+		if err != nil {
+			continue
+		}
+		var st struct {
+			Active       bool `json:"active"`
+			Intercepting bool `json:"intercepting"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&st)
+		resp.Body.Close()
+		if err == nil && (!st.Active || st.Intercepting) {
+			return true
+		}
+	}
+	return false
+}
+
 // removeLegacyInstall deletes the pre-rename program folder once the service
 // runs from dstDir. A WinDivert64.sys that is still loaded stays until reboot.
 func removeLegacyInstall(dstDir string) {
@@ -594,7 +679,7 @@ func uninstall() error {
 			removeLater(filepath.Join(dir, e.Name()))
 		}
 	}
-	removeLater(dir)
+	removeDirLater(dir)
 	if local := os.Getenv("LOCALAPPDATA"); local != "" {
 		os.RemoveAll(filepath.Join(local, "NaxDNS"))
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 )
@@ -14,6 +15,11 @@ const flowTTL = 30 * time.Second
 // acceptedTTL is how long the original destination of an accepted connection
 // is remembered for its queries.
 const acceptedTTL = time.Hour
+
+// maxFlows bounds each map of the flow table, so a flood of connections
+// cannot grow it without limit. Past the bound a new connection is refused,
+// and the oldest remembered destinations are forgotten.
+const maxFlows = 16384
 
 type flowEntry struct {
 	at  time.Time
@@ -37,19 +43,37 @@ func (t *flowTable) add(remote netip.AddrPort, dst netip.Addr) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := time.Now()
-	t.flows[remote] = flowEntry{at: now, dst: dst}
-	if len(t.flows) > 4096 {
-		for k, e := range t.flows {
-			if now.Sub(e.at) > flowTTL {
-				delete(t.flows, k)
-			}
+	if len(t.flows) >= 4096 {
+		prune(t.flows, now, flowTTL)
+	}
+	if len(t.flows) < maxFlows {
+		t.flows[remote] = flowEntry{at: now, dst: dst}
+	}
+	if len(t.accepted) >= 4096 {
+		prune(t.accepted, now, acceptedTTL)
+	}
+}
+
+// prune deletes the entries older than ttl and, if the map is still at the
+// bound, the oldest half of the rest.
+func prune(m map[netip.AddrPort]flowEntry, now time.Time, ttl time.Duration) {
+	for k, e := range m {
+		if now.Sub(e.at) > ttl {
+			delete(m, k)
 		}
 	}
-	if len(t.accepted) > 4096 {
-		for k, e := range t.accepted {
-			if now.Sub(e.at) > acceptedTTL {
-				delete(t.accepted, k)
-			}
+	if len(m) < maxFlows {
+		return
+	}
+	ages := make([]time.Time, 0, len(m))
+	for _, e := range m {
+		ages = append(ages, e.at)
+	}
+	slices.SortFunc(ages, func(a, b time.Time) int { return a.Compare(b) })
+	cut := ages[len(ages)/2]
+	for k, e := range m {
+		if !e.at.After(cut) {
+			delete(m, k)
 		}
 	}
 }
@@ -63,6 +87,9 @@ func (t *flowTable) take(remote netip.AddrPort) bool {
 	delete(t.flows, remote)
 	if !ok || time.Since(e.at) > flowTTL {
 		return false
+	}
+	if len(t.accepted) >= maxFlows {
+		prune(t.accepted, time.Now(), acceptedTTL)
 	}
 	t.accepted[remote] = flowEntry{at: time.Now(), dst: e.dst}
 	return true
@@ -90,13 +117,23 @@ func (l *redirectedOnly) Accept() (net.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		if ra, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
-			if ap := ra.AddrPort(); l.flows.take(netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())) {
-				return conn, nil
-			}
+		if remote, ok := proxyRemote(conn.RemoteAddr()); ok && l.flows.take(remote) {
+			return conn, nil
 		}
 		conn.Close()
 	}
+}
+
+// proxyRemote returns the remote end of a proxy connection in the form the
+// flow table uses, which comes from packet headers: no IPv4 mapping and no
+// IPv6 zone, which Windows adds for link-local addresses.
+func proxyRemote(addr net.Addr) (netip.AddrPort, bool) {
+	ra, ok := addr.(*net.TCPAddr)
+	if !ok {
+		return netip.AddrPort{}, false
+	}
+	ap := ra.AddrPort()
+	return netip.AddrPortFrom(ap.Addr().Unmap().WithZone(""), ap.Port()), true
 }
 
 // isSYN reports whether a TCP header opens a connection (SYN set, ACK clear).

@@ -81,10 +81,14 @@ func main() {
 }
 
 func fatal(err error) {
-	text, _ := windows.UTF16PtrFromString(err.Error())
+	showError(err.Error())
+	os.Exit(1)
+}
+
+func showError(msg string) {
+	text, _ := windows.UTF16PtrFromString(msg)
 	title, _ := windows.UTF16PtrFromString("Nax-DNSManager")
 	windows.MessageBox(0, text, title, windows.MB_ICONERROR)
-	os.Exit(1)
 }
 
 func (a *app) handler(host string) http.Handler {

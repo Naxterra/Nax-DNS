@@ -98,6 +98,11 @@ func setupLog(name string, console bool) {
 	if dirErr != nil {
 		return // never write into a folder that could not be secured
 	}
+	openLog(name, console)
+}
+
+// openLog switches the log to the data folder, which must be secure.
+func openLog(name string, console bool) {
 	os.MkdirAll(config.Dir(), 0o755)
 	file := "service.log"
 	if name == "guard" || name == guard.ServiceName {
@@ -138,14 +143,14 @@ func runGuard(ctx context.Context) error {
 		// The guard keeps its remembered state rather than exiting, so strict
 		// mode stays closed while the resolver refuses to run. It checks the
 		// folder again regularly and goes back to following the configuration
-		// once the folder is secure.
+		// once the folder is secure. dirErr itself is left as it is, because
+		// the recheck runs alongside the service handler that reads it.
 		reportEvent(dirErr)
 		guard.Run(ctx, false, func() error {
 			if err := config.SecureDir(); err != nil {
 				return err
 			}
-			dirErr = nil
-			setupLog(guard.ServiceName, false)
+			openLog(guard.ServiceName, false)
 			log.Printf("Nax-DNSManager guard %s: the data folder is secure again", service.Version)
 			return nil
 		})

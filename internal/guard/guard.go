@@ -148,17 +148,9 @@ func Run(ctx context.Context, trustedDir bool, recheck func() error) {
 			checking = true
 			go func() { rechecked <- recheck() }()
 		}
-		want := current
-		if !trustedDir {
-			want = remembered
-		} else if missingWithCopy(path) {
-			// The resolver is restoring config.json; Load would read the
-			// missing file as a first start and switch the guard off.
-		} else if cfg, err := config.Load(path); err == nil {
-			want = ""
-			if Enabled(cfg) {
-				want = Filter(cfg.Settings)
-			}
+		want := remembered
+		if trustedDir {
+			want = wanted(path, remembered)
 			if want != remembered {
 				rememberFilter(want)
 				remembered = want
@@ -201,6 +193,25 @@ func Run(ctx context.Context, trustedDir bool, recheck func() error) {
 		case <-tick.C:
 		}
 	}
+}
+
+// wanted returns the filter that the configuration at path asks for. Without a
+// usable configuration it returns the remembered filter, which also covers a
+// start while config.json is damaged or locked.
+func wanted(path, remembered string) string {
+	if missingWithCopy(path) {
+		// The resolver is restoring config.json; Load would read the missing
+		// file as a first start and switch the guard off.
+		return remembered
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return remembered
+	}
+	if Enabled(cfg) {
+		return Filter(cfg.Settings)
+	}
+	return ""
 }
 
 // missingWithCopy reports a config.json that is missing although a working

@@ -171,3 +171,45 @@ func TestAcceptedConnectionRemembersTheDialledServer(t *testing.T) {
 		t.Errorf("destination %v, %v; want the dialled 127.0.0.53 rather than the client's own address", dst, ok)
 	}
 }
+
+// Windows reports a link-local IPv6 peer with its zone index, while the flow
+// table is filled from packet headers, which have none.
+func TestLinkLocalIPv6ConnectionMatchesItsFlow(t *testing.T) {
+	ft := newFlowTable()
+	server := netip.MustParseAddr("fe80::1")
+	ft.add(netip.AddrPortFrom(server, 50400), server)
+	remote, ok := proxyRemote(&net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 50400, Zone: "12"})
+	if !ok || !ft.take(remote) {
+		t.Errorf("a redirected connection to a link-local server was refused (%v)", remote)
+	}
+}
+
+// A flood of connection attempts must not grow the flow table without limit.
+func TestFlowTableStaysBounded(t *testing.T) {
+	ft := newFlowTable()
+	dst := netip.MustParseAddr("192.0.2.53")
+	for i := range maxFlows + 5000 {
+		ip := netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)})
+		ft.add(netip.AddrPortFrom(ip, 5000), dst)
+	}
+	if n := len(ft.flows); n > maxFlows {
+		t.Errorf("the flow table holds %d pending flows, more than its bound of %d", n, maxFlows)
+	}
+	now := time.Now()
+	for i := range maxFlows {
+		ft.accepted[netip.AddrPortFrom(netip.AddrFrom4([4]byte{11, byte(i >> 16), byte(i >> 8), byte(i)}), 5000)] = flowEntry{at: now.Add(time.Duration(i) * time.Microsecond), dst: dst}
+	}
+	last := maxFlows - 1
+	newest := netip.AddrPortFrom(netip.AddrFrom4([4]byte{11, byte(last >> 16), byte(last >> 8), byte(last)}), 5000)
+	k := netip.MustParseAddrPort("10.200.0.1:6000")
+	ft.flows = map[netip.AddrPort]flowEntry{k: {at: time.Now(), dst: dst}}
+	if !ft.take(k) {
+		t.Fatal("a fresh flow was refused")
+	}
+	if n := len(ft.accepted); n > maxFlows {
+		t.Errorf("the accepted table holds %d entries, more than its bound of %d", n, maxFlows)
+	}
+	if _, ok := ft.destination(newest); !ok {
+		t.Error("pruning forgot the newest connections instead of the oldest")
+	}
+}

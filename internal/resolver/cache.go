@@ -11,18 +11,23 @@ import (
 
 const (
 	cacheMaxEntries = 20000
-	staleWindow     = 6 * time.Hour
+	// cacheMaxBytes bounds the memory of the cached answers, which can be up
+	// to 64 KiB each over TCP and the encrypted transports.
+	cacheMaxBytes = 32 << 20
+	staleWindow   = 6 * time.Hour
 )
 
 type cacheEntry struct {
 	msg    *dns.Msg
 	stored time.Time
 	ttl    time.Duration
+	size   int
 }
 
 type cache struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
+	bytes   int
 }
 
 func newCache() *cache { return &cache{entries: map[string]cacheEntry{}} }
@@ -112,23 +117,37 @@ func (c *cache) put(key string, msg *dns.Msg, minTTL, maxTTL int) {
 	if ttl == 0 {
 		return
 	}
+	size := msg.Len()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.entries) >= cacheMaxEntries {
+	if old, ok := c.entries[key]; ok {
+		c.bytes -= old.size
+		delete(c.entries, key)
+	}
+	if len(c.entries) >= cacheMaxEntries || c.bytes+size > cacheMaxBytes {
+		// Drop a tenth of the entries, and more if the new answer still does
+		// not fit.
 		drop := cacheMaxEntries / 10
-		for k := range c.entries {
-			delete(c.entries, k)
-			if drop--; drop <= 0 {
+		for k, e := range c.entries {
+			if drop <= 0 && c.bytes+size <= cacheMaxBytes {
 				break
 			}
+			delete(c.entries, k)
+			c.bytes -= e.size
+			drop--
 		}
 	}
-	c.entries[key] = cacheEntry{msg: msg.Copy(), stored: time.Now(), ttl: time.Duration(ttl) * time.Second}
+	if size > cacheMaxBytes {
+		return
+	}
+	c.entries[key] = cacheEntry{msg: msg.Copy(), stored: time.Now(), ttl: time.Duration(ttl) * time.Second, size: size}
+	c.bytes += size
 }
 
 func (c *cache) flush() {
 	c.mu.Lock()
 	c.entries = map[string]cacheEntry{}
+	c.bytes = 0
 	c.mu.Unlock()
 }
 

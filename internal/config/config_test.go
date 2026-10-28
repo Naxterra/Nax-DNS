@@ -379,3 +379,54 @@ func TestLockedFileAsksTheCallerToTryAgain(t *testing.T) {
 		t.Errorf("save=%v retry=%v, want the locked file left alone and a retry requested", rec.Save, rec.Retry)
 	}
 }
+
+// A save from the app over a file that was damaged while the service ran,
+// for example by a hand edit with a typo, keeps a copy of the damaged file.
+func TestSaveOverDamagedFileKeepsACopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("{hand edit with a typo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Default().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	broken, _ := filepath.Glob(path + ".broken-*")
+	if len(broken) != 1 {
+		t.Fatalf("the damaged file was not kept: %v", broken)
+	}
+	if data, _ := os.ReadFile(broken[0]); string(data) != "{hand edit with a typo" {
+		t.Errorf("the kept copy has the wrong content: %q", data)
+	}
+}
+
+// A save that cannot read the current file changes neither the file nor its
+// working copy.
+func TestSaveOverLockedFileChangesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	c := Default()
+	c.Active = true
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(BackupPath(path))
+	p, _ := windows.UTF16PtrFromString(path)
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := Default()
+	err = next.Save(path)
+	windows.CloseHandle(h)
+	if err == nil {
+		t.Fatal("a save over a locked file succeeded")
+	}
+	if after, _ := os.ReadFile(BackupPath(path)); string(after) != string(before) {
+		t.Error("the working copy was replaced by a save that failed")
+	}
+	if saved, err := Load(path); err != nil || !saved.Active {
+		t.Errorf("the configuration changed: %v, %+v", err, saved)
+	}
+}

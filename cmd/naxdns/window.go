@@ -45,21 +45,16 @@ func closeWindow() {
 }
 
 // openWindow shows the Nax-DNSManager window. It lives in its own process so closing
-// it leaves the tray icon running.
+// it leaves the tray icon running. The address carries the session token, so
+// it is never handed to a web browser, where it would end up in the history.
 func openWindow(u string) {
 	exe, err := os.Executable()
 	if err == nil {
 		err = exec.Command(exe, "--window", u).Start()
 	}
 	if err != nil {
-		openInBrowser(u)
+		showError("The Nax-DNSManager window could not be opened: " + err.Error())
 	}
-}
-
-func openInBrowser(u string) {
-	verb, _ := windows.UTF16PtrFromString("open")
-	target, _ := windows.UTF16PtrFromString(u)
-	windows.ShellExecute(0, verb, target, nil, nil, windows.SW_SHOWNORMAL)
 }
 
 // runWindow is the body of "Nax-DNSManager.exe --window <url>": a native window that
@@ -85,7 +80,7 @@ func runWindow(u string) {
 		},
 	})
 	if w == nil {
-		openInBrowser(u) // WebView2 runtime missing
+		showError("The Nax-DNSManager window needs the Microsoft Edge WebView2 Runtime, which is part of Windows 11. Install or repair it from Microsoft and open the app again.")
 		return
 	}
 	defer w.Destroy()
