@@ -131,21 +131,23 @@ func serviceRunning(m *mgr.Mgr, name string) bool {
 }
 
 // startAndWaitForGuard starts the guard and waits up to five seconds for its
-// first report, which it writes after it has decided whether to block.
-func startAndWaitForGuard(m *mgr.Mgr) {
+// first report, which it writes after it has decided whether to block. It
+// reports whether that report arrived.
+func startAndWaitForGuard(m *mgr.Mgr) bool {
 	s, err := m.OpenService(guard.ServiceName)
 	if err != nil {
-		return
+		return false
 	}
 	started := time.Now()
 	s.Start()
 	s.Close()
 	for deadline := started.Add(5 * time.Second); time.Now().Before(deadline); {
 		if st, running := guard.ReadStatus(); running && st.Updated.After(started) {
-			return
+			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	return false
 }
 
 func copyFile(src, dst string) error {
@@ -372,18 +374,23 @@ func install(user string) (err error) {
 			created[name] = true
 		}
 	}
-	restartInTurn := func() {
+	// restartInTurn starts the restored version and returns a note for the
+	// error message when it could not do so without a gap.
+	restartInTurn := func() string {
 		// The guard must run before the resolver is cycled, so plain DNS is
-		// blocked at every moment. A stopped guard (its start may have been
-		// what failed) is started first from the restored files. A running
-		// guard keeps blocking from the new files and is restarted only once
-		// the resolver intercepts; if it never does, the guard stays as it is.
+		// blocked throughout. A stopped guard (its start may have been what
+		// failed) is started first from the restored files. If it does not
+		// report, a running resolver is left alone rather than restarted
+		// without a guard; the restored files take over at its next restart.
+		// A running guard keeps blocking from the new files and is restarted
+		// only once the resolver intercepts; if it never does, the guard
+		// stays as it is.
 		if created[serviceName] {
-			return
+			return ""
 		}
 		guardRunning := created[guard.ServiceName] || serviceRunning(m, guard.ServiceName)
-		if !guardRunning {
-			startAndWaitForGuard(m)
+		if !guardRunning && !startAndWaitForGuard(m) && serviceRunning(m, serviceName) {
+			return "; the guard did not start, so the running service was not restarted, to avoid a moment without blocking, and the previous version takes over at its next restart"
 		}
 		stopService(m, serviceName)
 		if s, err := m.OpenService(serviceName); err == nil {
@@ -391,10 +398,11 @@ func install(user string) (err error) {
 			s.Close()
 		}
 		if created[guard.ServiceName] || !guardRunning || !waitIntercepting(15*time.Second) {
-			return
+			return ""
 		}
 		stopService(m, guard.ServiceName)
 		startAndWaitForGuard(m)
+		return ""
 	}
 	restore := func(cause error) error {
 		if created[serviceName] {
@@ -436,8 +444,8 @@ func install(user string) (err error) {
 		}
 		if len(failed) > 0 && !created[serviceName] {
 			// Say so plainly; the previous files stay as *.old for a manual fix.
-			restartInTurn()
-			return fmt.Errorf("%w; restoring the previous version failed (%s), and the previous files are kept as *.old in %s", cause, strings.Join(failed, "; "), dstDir)
+			note := restartInTurn()
+			return fmt.Errorf("%w; restoring the previous version failed (%s), and the previous files are kept as *.old in %s%s", cause, strings.Join(failed, "; "), dstDir, note)
 		}
 		// Only services that this run created are deleted.
 		for _, name := range []string{guard.ServiceName, serviceName} {
@@ -466,8 +474,8 @@ func install(user string) (err error) {
 			}
 			return fmt.Errorf("%w; nothing was installed", cause)
 		}
-		restartInTurn()
-		return fmt.Errorf("%w; the previous version was restored", cause)
+		note := restartInTurn()
+		return fmt.Errorf("%w; the previous version was restored%s", cause, note)
 	}
 	for i := range swaps {
 		path := filepath.Join(dstDir, swaps[i].name)

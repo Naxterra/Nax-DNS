@@ -17,8 +17,8 @@ const flowTTL = 30 * time.Second
 const acceptedTTL = time.Hour
 
 // maxFlows bounds each map of the flow table, so a flood of connections
-// cannot grow it without limit. Past the bound a new connection is refused,
-// and the oldest remembered destinations are forgotten.
+// cannot grow it without limit. At the bound the oldest half of the entries
+// is forgotten, so new connections are always accepted.
 const maxFlows = 16384
 
 type flowEntry struct {
@@ -49,9 +49,13 @@ func (t *flowTable) add(remote netip.AddrPort, dst netip.Addr) {
 		prune(t.accepted, now, acceptedTTL)
 		t.pruned = now
 	}
-	if len(t.flows) < maxFlows {
-		t.flows[remote] = flowEntry{at: now, dst: dst}
+	// At the bound the oldest half goes at once, whenever the last sweep was,
+	// so the newest connection is always recorded. That happens at most once
+	// per maxFlows/2 new connections.
+	if len(t.flows) >= maxFlows {
+		prune(t.flows, now, flowTTL)
 	}
+	t.flows[remote] = flowEntry{at: now, dst: dst}
 }
 
 // prune deletes the entries older than ttl and, if the map is still at the

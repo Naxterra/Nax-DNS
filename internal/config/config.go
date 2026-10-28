@@ -408,11 +408,21 @@ func keepDamaged(path string) (message string, ok bool) {
 	}
 	// Recover keeps the copy, and the save that follows it reads the same
 	// damaged file again; one copy of the same content is enough.
-	if copies, _ := filepath.Glob(path + ".broken-*"); len(copies) > 0 {
-		for _, c := range copies {
-			if kept, err := os.ReadFile(c); err == nil && bytes.Equal(kept, data) {
-				return fmt.Sprintf("The damaged file was kept as %s.", filepath.Base(c)), true
-			}
+	// The folder is listed rather than globbed, so a folder name with pattern
+	// characters cannot change the match, and only a copy of the same size is
+	// read in full.
+	prefix := filepath.Base(path) + ".broken-"
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		if info, err := entry.Info(); err != nil || info.Size() != int64(len(data)) {
+			continue
+		}
+		c := filepath.Join(filepath.Dir(path), entry.Name())
+		if kept, err := os.ReadFile(c); err == nil && bytes.Equal(kept, data) {
+			return fmt.Sprintf("The damaged file was kept as %s.", entry.Name()), true
 		}
 	}
 	name := path + ".broken-" + time.Now().Format("20060102-150405.000000000")

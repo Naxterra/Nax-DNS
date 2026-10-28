@@ -432,9 +432,16 @@ func TestSaveOverLockedFileChangesNothing(t *testing.T) {
 }
 
 // Recovery and the save that follows it read the same damaged file; it must
-// be kept once, not twice.
+// be kept once, not twice, also in a folder whose name has pattern characters.
 func TestRecoveredDamagedFileIsKeptOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.json")
+	dir := filepath.Join(t.TempDir(), "data[1]*")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		dir = filepath.Join(filepath.Dir(dir), "data[1]") // '*' is not allowed in Windows names
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(dir, "config.json")
 	good := Default()
 	if err := good.Save(path); err != nil {
 		t.Fatal(err)
@@ -449,7 +456,14 @@ func TestRecoveredDamagedFileIsKeptOnce(t *testing.T) {
 	if err := rec.Config.Save(path); err != nil {
 		t.Fatal(err)
 	}
-	if broken, _ := filepath.Glob(path + ".broken-*"); len(broken) != 1 {
+	entries, _ := os.ReadDir(dir)
+	var broken []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "config.json.broken-") {
+			broken = append(broken, e.Name())
+		}
+	}
+	if len(broken) != 1 {
 		t.Errorf("the damaged file was kept %d times: %v", len(broken), broken)
 	}
 }

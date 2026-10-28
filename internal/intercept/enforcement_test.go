@@ -188,12 +188,16 @@ func TestLinkLocalIPv6ConnectionMatchesItsFlow(t *testing.T) {
 func TestFlowTableStaysBounded(t *testing.T) {
 	ft := newFlowTable()
 	dst := netip.MustParseAddr("192.0.2.53")
+	var latest netip.AddrPort
 	for i := range maxFlows + 5000 {
-		ip := netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)})
-		ft.add(netip.AddrPortFrom(ip, 5000), dst)
+		latest = netip.AddrPortFrom(netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)}), 5000)
+		ft.add(latest, dst)
 	}
 	if n := len(ft.flows); n > maxFlows {
 		t.Errorf("the flow table holds %d pending flows, more than its bound of %d", n, maxFlows)
+	}
+	if _, ok := ft.flows[latest]; !ok {
+		t.Error("the newest connection of the flood was not recorded, so it would be refused")
 	}
 	now := time.Now()
 	for i := range maxFlows {

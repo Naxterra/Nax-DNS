@@ -93,13 +93,17 @@ func clone(c *config.Config) *config.Config {
 // active on disk, so strict mode keeps failing closed, and the interceptor
 // keeps retrying in the background.
 func (e *Engine) Apply(next *config.Config) error {
-	return e.apply(next, false)
+	return e.apply(next, false, "")
 }
 
 // errPending refuses changes while the saved configuration cannot be read.
 var errPending = errors.New("the saved configuration cannot be read at the moment, so changes are refused until it can; otherwise they would replace it")
 
-func (e *Engine) apply(next *config.Config, reload bool) error {
+// apply does the work of Apply. With reload it takes over the saved
+// configuration after it was unreadable, even while changes are refused, and
+// problem becomes the message shown in the app, set under the same lock as
+// the save so a later change from the app always clears it.
+func (e *Engine) apply(next *config.Config, reload bool, problem string) error {
 	next = clone(next)
 	next.Version = config.SchemaVersion // a change from the app is current by definition
 	if err := next.Validate(); err != nil {
@@ -125,7 +129,7 @@ func (e *Engine) apply(next *config.Config, reload bool) error {
 		return fmt.Errorf("the configuration could not be saved, so nothing was changed: %w", err)
 	}
 	e.cfg = next
-	e.configProblem = ""
+	e.configProblem = problem
 	e.pending = false
 	running, _ := e.Interceptor.Status()
 	if next.Active != prev.Active || (next.Active && !running) || !reflect.DeepEqual(prev.Settings, next.Settings) {
@@ -153,12 +157,9 @@ func (e *Engine) reloadWhenReadable() {
 		if rec.Retry {
 			continue
 		}
-		err := e.apply(rec.Config, true)
+		err := e.apply(rec.Config, true, rec.Problem)
 		e.mu.Lock()
 		saved := !e.pending
-		if saved {
-			e.configProblem = rec.Problem
-		}
 		e.mu.Unlock()
 		if !saved {
 			log.Printf("the configuration is readable again but could not be applied: %v", err)
