@@ -76,3 +76,8 @@ The Add server dialog builds these from the ID. DoH3 is strict HTTP/3 and needs 
 | `internal/resolver` | Rules, cache, failover, health and query log |
 | `internal/upstream` | DoH, DoH3, DoT and DoQ clients (AdGuard dnsproxy) and bootstrap |
 | `internal/service` | Engine and control API on `\\.\pipe\NaxDNS.Control` |
+
+## License
+
+This software is under the Nax Source-Available License 1.0. You may install and use the official release builds, privately and at work, and you may read the source code. Modifying the software, redistributing it and selling it need the written permission of the owner. See [LICENSE](LICENSE).
+
