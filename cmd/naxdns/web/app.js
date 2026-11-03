@@ -97,8 +97,18 @@ async function api(method, path, body) {
 }
 
 // save applies a change to a copy of the configuration and sends it. Every
-// edit takes effect immediately; there is no separate "apply" step.
-async function save(change, okMsg) {
+// edit takes effect immediately; there is no separate "apply" step. Saves run
+// one after another, and each change is applied to the configuration the
+// previous save left, so two quick edits never send two snapshots that undo
+// each other.
+let saveQueue = Promise.resolve();
+function save(change, okMsg) {
+  const run = saveQueue.then(() => saveNow(change, okMsg));
+  saveQueue = run.catch(() => {});
+  return run;
+}
+
+async function saveNow(change, okMsg) {
   const next = structuredClone(cfg);
   change(next);
   try {
@@ -202,11 +212,11 @@ function serverRow(u, i, editable) {
       h('div', { class: 'sub', title: sub }, sub)),
     h('span', { class: 'num' }, num),
     editable ? [
-      h('button', { class: 'btn icon', title: T('Higher priority'), disabled: idx === 0, onclick: () => moveServer(idx, -1) }, '↑'),
-      h('button', { class: 'btn icon', title: T('Lower priority'), disabled: idx === n - 1, onclick: () => moveServer(idx, 1) }, '↓'),
+      h('button', { class: 'btn icon', title: T('Higher priority'), disabled: idx === 0, onclick: () => moveServer(u.id, -1) }, '↑'),
+      h('button', { class: 'btn icon', title: T('Lower priority'), disabled: idx === n - 1, onclick: () => moveServer(u.id, 1) }, '↓'),
       h('button', { class: 'btn', onclick: () => serverDialog(u) }, T('Edit')),
       h('label', { class: 'switch small', title: T('Enable or disable this server') },
-        h('input', { type: 'checkbox', checked: u.enabled, onchange: e => save(c => { c.upstreams[idx].enabled = e.target.checked; }) }),
+        h('input', { type: 'checkbox', checked: u.enabled, onchange: e => save(c => { const s = c.upstreams.find(x => x.id === u.id); if (s) s.enabled = e.target.checked; }) }),
         h('span', {})),
     ] : null);
 }
@@ -240,8 +250,12 @@ function renderServers() {
   );
 }
 
-function moveServer(idx, dir) {
+// moveServer finds the server by its id when the save runs, because an
+// earlier queued save may have changed the order meanwhile.
+function moveServer(id, dir) {
   save(c => {
+    const idx = c.upstreams.findIndex(x => x.id === id);
+    if (idx < 0 || idx + dir < 0 || idx + dir >= c.upstreams.length) return;
     const [u] = c.upstreams.splice(idx, 1);
     c.upstreams.splice(idx + dir, 0, u);
   });
@@ -436,7 +450,7 @@ function renderRules() {
             h('div', { class: 'sub' }, r.domains.join(', '))),
           h('button', { class: 'btn', onclick: () => ruleDialog(r) }, T('Edit')),
           h('label', { class: 'switch small' },
-            h('input', { type: 'checkbox', checked: r.enabled, onchange: e => save(c => { c.rules[idx].enabled = e.target.checked; }) }),
+            h('input', { type: 'checkbox', checked: r.enabled, onchange: e => save(c => { const x = r.id ? c.rules.find(y => y.id === r.id) : c.rules[idx]; if (x) x.enabled = e.target.checked; }) }),
             h('span', {})));
       }) : h('div', { class: 'empty' }, T('No rules. Everything goes to your servers.'))),
   );

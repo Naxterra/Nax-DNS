@@ -79,6 +79,25 @@ func ReadStatus() (Status, bool) {
 	return st, !st.Stopped && time.Since(st.Updated) < 5*pollInterval
 }
 
+// Blocking reports whether a moment without the resolver is safe. That is the
+// case when the saved configuration does not ask for strict mode, whatever
+// state the guard is in, and otherwise only when the guard has reported after
+// since and holds a blocking filter. A configuration that cannot be read, or
+// that is missing while its working copy exists (the resolver is restoring
+// it), counts as strict, so an unknown state never passes as safe. The filter
+// text is not compared with Filter: the running guard may be an older version
+// whose filter is worded differently but blocks all the same.
+func Blocking(since time.Time) bool {
+	path := filepath.Join(config.Dir(), "config.json")
+	if !missingWithCopy(path) {
+		if cfg, err := config.Load(path); err == nil && cfg != nil && !Enabled(cfg) {
+			return true
+		}
+	}
+	st, running := ReadStatus()
+	return running && st.Updated.After(since) && st.Enabled && st.Filter != ""
+}
+
 func writeStatus(st Status) {
 	st.Updated = time.Now()
 	data, _ := json.Marshal(st)

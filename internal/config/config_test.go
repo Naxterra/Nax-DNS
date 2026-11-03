@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -252,6 +253,54 @@ func TestOlderConfigurationIsMigratedInsteadOfDiscarded(t *testing.T) {
 	}
 	if s.TCPMode != TCPProxy || s.TimeoutMs != 500 || s.CooldownSec != 3600 || s.CacheMaxTTL != 10 {
 		t.Errorf("settings were not brought within bounds: tcp=%s timeout=%d cooldown=%d cacheMax=%d", s.TCPMode, s.TimeoutMs, s.CooldownSec, s.CacheMaxTTL)
+	}
+}
+
+// Files from before 0.3.5 have a local-names rule without the IPv6 reverse
+// zones, so PTR lookups for fd00:: and fe80:: addresses would reach the
+// provider. The upgrade adds them and keeps the owner's own changes.
+func TestUpgradeAddsIPv6LocalReverseZonesAndKeepsOwnChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	old := `{"version":1,"active":true,"upstreams":[{"id":"a","name":"A","url":"https://dns.example/dns-query","enabled":true}],` +
+		`"rules":[{"id":"local","name":"Local names","enabled":true,"action":"passthrough","domains":["lan","my.box","10.in-addr.arpa"]}],` +
+		`"settings":{"timeoutMs":3000,"onFailure":"servfail","cacheMaxTtl":3600}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := cfg.Rules[0]
+	for _, zone := range localIPv6ReverseZones {
+		if !slices.Contains(rule.Domains, zone) {
+			t.Errorf("the upgraded rule lacks %s", zone)
+		}
+	}
+	if rule.Action != ActionPassthrough || !slices.Contains(rule.Domains, "my.box") {
+		t.Errorf("the owner's changes to the rule were lost: action=%s domains=%v", rule.Action, rule.Domains)
+	}
+	for _, zone := range localIPv6ReverseZones {
+		if slices.Contains(Default().Rules[0].Domains, zone) {
+			continue
+		}
+		t.Errorf("a first installation does not answer %s locally", zone)
+	}
+}
+
+// A file whose owner deleted the local-names rule must not get it back.
+func TestUpgradeDoesNotRestoreADeletedLocalRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	old := `{"version":1,"active":false,"upstreams":[],"rules":[],"settings":{"timeoutMs":3000,"onFailure":"servfail","cacheMaxTtl":3600}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Rules) != 0 {
+		t.Errorf("the upgrade added rules the owner had deleted: %v", cfg.Rules)
 	}
 }
 

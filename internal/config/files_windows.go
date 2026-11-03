@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -93,27 +94,93 @@ func SecureDir() error {
 	if err != nil {
 		return err
 	}
+	// Every entry that cannot be made safe is reported instead of skipped: a
+	// planted file that is held open survives its deletion, and a file keeps
+	// permissions of its own if they could not be removed, so the services
+	// must not start on such a folder.
+	var problems []string
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 		fi, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", entry.Name(), err))
 			continue
 		}
 		if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
-			os.Remove(path) // removes the link itself, never its target
-			continue
-		}
-		if trusted, err := ownedByAdmins(path); err != nil || !trusted {
-			if fi.IsDir() {
-				os.RemoveAll(path)
-			} else {
-				os.Remove(path)
+			// Removes the link itself, never its target.
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				problems = append(problems, fmt.Sprintf("remove the link %s: %v", entry.Name(), err))
 			}
 			continue
 		}
-		inheritOnly(path)
+		if trusted, err := ownedByAdmins(path); err != nil || !trusted {
+			remove := os.Remove
+			if fi.IsDir() {
+				remove = os.RemoveAll
+			}
+			if err := remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				problems = append(problems, fmt.Sprintf("remove %s, which belongs to another account: %v", entry.Name(), err))
+			}
+			continue
+		}
+		if err := settle(path, func() error { return inheritOnly(path) }); err != nil {
+			problems = append(problems, fmt.Sprintf("reset the permissions of %s: %v", entry.Name(), err))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("the data folder could not be made safe: %s", strings.Join(problems, "; "))
+	}
+	// A last pass checks what the services will actually open.
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		fi, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil || fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return fmt.Errorf("the data folder still contains %s, which cannot be trusted", entry.Name())
+		}
+		trusted := false
+		if err := settle(path, func() error {
+			ok, err := ownedByAdmins(path)
+			trusted = ok
+			return err
+		}); err != nil {
+			return fmt.Errorf("the owner of %s in the data folder could not be read: %v", entry.Name(), err)
+		}
+		if _, err := os.Lstat(path); err == nil && !trusted {
+			return fmt.Errorf("the data folder still contains %s, which belongs to another account", entry.Name())
+		}
 	}
 	return nil
+}
+
+// settle runs op on an entry of the data folder. The services replace files
+// there all the time (the guard renames guard.json.tmp over guard.json every
+// second), so an entry that vanishes meanwhile, or that is pending deletion
+// and denies access for a moment, is not an error: op is retried briefly and
+// succeeds once the entry is gone.
+func settle(path string, op func() error) error {
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err = op(); err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if _, serr := os.Lstat(path); errors.Is(serr, os.ErrNotExist) {
+			return nil
+		}
+	}
+	return err
 }
 
 func applySDDL(path, sddl string) error {

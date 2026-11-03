@@ -120,6 +120,15 @@ func stopService(m *mgr.Mgr, name string) bool {
 	return false
 }
 
+func serviceExists(m *mgr.Mgr, name string) bool {
+	s, err := m.OpenService(name)
+	if err != nil {
+		return false
+	}
+	s.Close()
+	return true
+}
+
 func serviceRunning(m *mgr.Mgr, name string) bool {
 	s, err := m.OpenService(name)
 	if err != nil {
@@ -130,9 +139,10 @@ func serviceRunning(m *mgr.Mgr, name string) bool {
 	return err == nil && st.State == svc.Running
 }
 
-// startAndWaitForGuard starts the guard and waits up to five seconds for its
-// first report, which it writes after it has decided whether to block. It
-// reports whether that report arrived.
+// startAndWaitForGuard starts the guard and waits up to five seconds until it
+// reports that it blocks as the configuration requires (see guard.Blocking).
+// A report alone is not enough: a guard whose filter failed to open also
+// reports.
 func startAndWaitForGuard(m *mgr.Mgr) bool {
 	s, err := m.OpenService(guard.ServiceName)
 	if err != nil {
@@ -142,7 +152,7 @@ func startAndWaitForGuard(m *mgr.Mgr) bool {
 	s.Start()
 	s.Close()
 	for deadline := started.Add(5 * time.Second); time.Now().Before(deadline); {
-		if st, running := guard.ReadStatus(); running && st.Updated.After(started) {
+		if guard.Blocking(started) {
 			return true
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -344,6 +354,17 @@ func install(user string) (err error) {
 		}
 	}
 
+	// Stopping a running resolver leaves only the guard between plain DNS and
+	// the network. If an installed guard does not block as the configuration
+	// requires (its filter failed to open, for example), stopping the resolver
+	// would let plain DNS out, so nothing is changed. A previous version
+	// without a guard is upgraded as before.
+	if serviceRunning(m, serviceName) && serviceExists(m, guard.ServiceName) && !guard.Blocking(time.Time{}) {
+		for _, sw := range swaps {
+			os.Remove(filepath.Join(dstDir, sw.name+".new"))
+		}
+		return errors.New("the guard is not blocking DNS as strict mode requires, so stopping the running service would let plain DNS out; nothing was changed (check the guard status in the app, or switch protection off for the upgrade)")
+	}
 	if !stopService(m, serviceName) {
 		// It may be half stopped; let it run again and leave nothing behind.
 		for _, sw := range swaps {
@@ -388,9 +409,12 @@ func install(user string) (err error) {
 		if created[serviceName] {
 			return ""
 		}
+		// A guard that runs but does not block (its filter failed to open)
+		// gives no protection, so only a blocking guard counts.
 		guardRunning := created[guard.ServiceName] || serviceRunning(m, guard.ServiceName)
-		if !guardRunning && !startAndWaitForGuard(m) && serviceRunning(m, serviceName) {
-			return "; the guard did not start, so the running service was not restarted, to avoid a moment without blocking, and the previous version takes over at its next restart"
+		guardBlocks := created[guard.ServiceName] || guard.Blocking(time.Time{})
+		if !guardBlocks && !startAndWaitForGuard(m) && serviceRunning(m, serviceName) {
+			return "; the guard is not blocking DNS, so the running service was not restarted, to avoid a moment without blocking, and the previous version takes over at its next restart"
 		}
 		stopService(m, serviceName)
 		if s, err := m.OpenService(serviceName); err == nil {

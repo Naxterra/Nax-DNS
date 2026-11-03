@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -63,6 +64,87 @@ func TestStoppedGuardIsNotReportedAsRunning(t *testing.T) {
 	writeStatus(Status{Stopped: true})
 	if _, running := ReadStatus(); running {
 		t.Error("a guard that just stopped is reported as running")
+	}
+}
+
+// An upgrade or rollback may stop the resolver in strict mode only while the
+// guard really blocks: a running guard whose WinDivert filter failed to open
+// must not count as ready, and neither may a report from before its start.
+// A filter worded differently by an older guard still counts.
+func TestGuardCountsAsBlockingOnlyWithAFilterOpen(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NAXDNS_DATA", dir)
+	path := filepath.Join(dir, "config.json")
+	cfg := config.Default()
+	cfg.Active = true // strict mode is the default failure mode
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().Add(-time.Second)
+	cases := []struct {
+		name string
+		st   Status
+		ok   bool
+	}{
+		{"filter failed to open", Status{Enabled: false, Error: "access denied"}, false},
+		{"filter of an older guard", Status{Enabled: true, Filter: "outbound and udp.DstPort == 53"}, true},
+		{"current filter", Status{Enabled: true, Filter: Filter(cfg.Settings)}, true},
+	}
+	for _, c := range cases {
+		writeStatus(c.st)
+		if got := Blocking(since); got != c.ok {
+			t.Errorf("%s: Blocking=%v, want %v", c.name, got, c.ok)
+		}
+	}
+	if Blocking(time.Now().Add(time.Minute)) {
+		t.Error("a report from before the guard was started counted as ready")
+	}
+	writeStatus(Status{Stopped: true})
+	if Blocking(since) {
+		t.Error("a stopped guard counted as blocking in strict mode")
+	}
+}
+
+// With protection off, or outside strict mode, nothing has to be blocked, so
+// an upgrade must go ahead whatever state the guard is in.
+func TestUpgradeIsAllowedWithoutStrictModeWhateverTheGuardState(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NAXDNS_DATA", dir)
+	cfg := config.Default()
+	cfg.Active = false
+	if err := cfg.Save(filepath.Join(dir, "config.json")); err != nil {
+		t.Fatal(err)
+	}
+	writeStatus(Status{Stopped: true})
+	if !Blocking(time.Now()) {
+		t.Error("with protection off, a stopped guard blocked the upgrade")
+	}
+}
+
+// While the resolver restores a missing config.json from its working copy,
+// Load would read the defaults (protection off). That must not let a guard
+// that does not block pass as safe.
+func TestMissingConfigurationWithWorkingCopyCountsAsStrict(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NAXDNS_DATA", dir)
+	path := filepath.Join(dir, "config.json")
+	cfg := config.Default()
+	cfg.Active = true
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(path); err != nil { // the second save leaves a working copy
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(config.BackupPath(path)); err != nil {
+		t.Fatalf("no working copy to test with: %v", err)
+	}
+	writeStatus(Status{Enabled: false})
+	if Blocking(time.Now().Add(-time.Second)) {
+		t.Error("a guard that does not block passed as safe while config.json was being restored")
 	}
 }
 

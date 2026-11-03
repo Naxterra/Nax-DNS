@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -98,15 +99,15 @@ func Default() *Config {
 			// LAN, and forwarding them would hand them to whichever DNS server
 			// Windows or a VPN configured. Switch the rule to "original DNS
 			// server" to resolve router-provided names instead.
-			ID: "local", Name: "Local names (answered locally)", Enabled: true, Action: ActionBlock,
-			Domains: []string{
+			ID: localRuleID, Name: "Local names (answered locally)", Enabled: true, Action: ActionBlock,
+			Domains: append([]string{
 				"<single-label>", "lan", "local", "home.arpa", "internal", "localdomain", "fritz.box",
 				"10.in-addr.arpa", "168.192.in-addr.arpa", "254.169.in-addr.arpa",
 				"16.172.in-addr.arpa", "17.172.in-addr.arpa", "18.172.in-addr.arpa", "19.172.in-addr.arpa",
 				"20.172.in-addr.arpa", "21.172.in-addr.arpa", "22.172.in-addr.arpa", "23.172.in-addr.arpa",
 				"24.172.in-addr.arpa", "25.172.in-addr.arpa", "26.172.in-addr.arpa", "27.172.in-addr.arpa",
 				"28.172.in-addr.arpa", "29.172.in-addr.arpa", "30.172.in-addr.arpa", "31.172.in-addr.arpa",
-			},
+			}, localIPv6ReverseZones...),
 		}},
 		Settings: Settings{
 			TimeoutMs: 3000, HedgeMs: 0, FailThreshold: 3, CooldownSec: 15,
@@ -118,6 +119,15 @@ func Default() *Config {
 		},
 	}
 }
+
+// localRuleID identifies the built-in rule for names that mean nothing outside
+// the LAN.
+const localRuleID = "local"
+
+// localIPv6ReverseZones are the reverse zones of unique local (fd00::/8) and
+// link-local (fe80::/10) addresses, which are served locally (RFC 6303), so a
+// PTR lookup for such an address never reaches the configured provider.
+var localIPv6ReverseZones = []string{"d.f.ip6.arpa", "8.e.f.ip6.arpa", "9.e.f.ip6.arpa", "a.e.f.ip6.arpa", "b.e.f.ip6.arpa"}
 
 // Normalize fills unset settings with defaults so older files keep working.
 func (c *Config) Normalize() {
@@ -186,6 +196,22 @@ func (c *Config) migrate() {
 		// are off by default now, so a file from before is brought in line.
 		s.HedgeMs = 0
 	}
+	if c.Version < 2 {
+		// Before 0.3.5 the built-in local-names rule covered only private IPv4
+		// reverse zones. The IPv6 ones are added to it; everything else the
+		// user changed in the rule (its action, extra domains, switching it
+		// off) is kept, and a rule the user deleted is not brought back.
+		for i := range c.Rules {
+			if c.Rules[i].ID != localRuleID {
+				continue
+			}
+			for _, zone := range localIPv6ReverseZones {
+				if !slices.Contains(c.Rules[i].Domains, zone) {
+					c.Rules[i].Domains = append(c.Rules[i].Domains, zone)
+				}
+			}
+		}
+	}
 	c.Version = SchemaVersion
 	for _, b := range s.limits() {
 		*b.value = min(max(*b.value, b.lo), b.hi)
@@ -197,7 +223,7 @@ func (c *Config) migrate() {
 }
 
 // SchemaVersion is the configuration format written by this version.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // ValidateUpstreamURL checks scheme and host of a server URL.
 func ValidateUpstreamURL(raw string) error {

@@ -28,6 +28,9 @@ type cache struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
 	bytes   int
+	// gen counts flushes. A lookup passes the generation it started under to
+	// put, so an answer that arrives after a flush is not stored.
+	gen uint64
 }
 
 func newCache() *cache { return &cache{entries: map[string]cacheEntry{}} }
@@ -46,6 +49,21 @@ func cacheKey(req *dns.Msg) string {
 		cd = "1"
 	}
 	return strings.ToLower(q.Name) + "|" + strconv.Itoa(int(q.Qtype)) + "|" + strconv.Itoa(int(q.Qclass)) + "|" + do + cd
+}
+
+// cacheable reports whether the answer to req may be shared through the
+// cache. A request with EDNS Client Subnet can get an answer that the server
+// scoped to that subnet (RFC 7871), and the key does not separate subnets, so
+// such requests bypass the cache in both directions.
+func cacheable(req *dns.Msg) bool {
+	if opt := req.IsEdns0(); opt != nil {
+		for _, o := range opt.Option {
+			if o.Option() == dns.EDNS0SUBNET {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // get returns a copy with TTLs reduced by the entry's age. stale reports an
@@ -80,7 +98,8 @@ func (c *cache) get(key string) (msg *dns.Msg, stale, ok bool) {
 	return msg, stale, true
 }
 
-func (c *cache) put(key string, msg *dns.Msg, minTTL, maxTTL int) {
+// put stores msg unless the cache was flushed since generation gen.
+func (c *cache) put(key string, msg *dns.Msg, minTTL, maxTTL int, gen uint64) {
 	if msg.Truncated || (msg.Rcode != dns.RcodeSuccess && msg.Rcode != dns.RcodeNameError) {
 		return
 	}
@@ -120,6 +139,9 @@ func (c *cache) put(key string, msg *dns.Msg, minTTL, maxTTL int) {
 	size := msg.Len()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if gen != c.gen {
+		return // the lookup started under a configuration that was replaced
+	}
 	if old, ok := c.entries[key]; ok {
 		c.bytes -= old.size
 		delete(c.entries, key)
@@ -148,7 +170,14 @@ func (c *cache) flush() {
 	c.mu.Lock()
 	c.entries = map[string]cacheEntry{}
 	c.bytes = 0
+	c.gen++
 	c.mu.Unlock()
+}
+
+func (c *cache) generation() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
 }
 
 func (c *cache) size() int {

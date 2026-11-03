@@ -18,7 +18,7 @@ import (
 )
 
 // Version is shown in the UI.
-const Version = "0.3.3"
+const Version = "0.3.5"
 
 type Engine struct {
 	mu   sync.Mutex
@@ -117,16 +117,25 @@ func (e *Engine) apply(next *config.Config, reload bool, problem string) error {
 	prev := e.cfg
 	routingChanged := !reflect.DeepEqual(prev.Upstreams, next.Upstreams) ||
 		!reflect.DeepEqual(prev.Rules, next.Rules) || !reflect.DeepEqual(prev.Settings, next.Settings)
+	// The new servers and rules are built first, so a configuration that
+	// cannot be used is refused before anything is saved, but queries keep
+	// using the previous ones until the save has succeeded.
+	var prepared *resolver.Prepared
 	if routingChanged {
-		if err := e.Resolver.Reload(next); err != nil {
+		p, err := e.Resolver.Prepare(next)
+		if err != nil {
 			return err
 		}
+		prepared = p
 	}
 	if err := next.Save(e.path); err != nil {
-		if routingChanged {
-			e.Resolver.Reload(prev)
+		if prepared != nil {
+			prepared.Discard()
 		}
 		return fmt.Errorf("the configuration could not be saved, so nothing was changed: %w", err)
+	}
+	if prepared != nil {
+		e.Resolver.Publish(prepared)
 	}
 	e.cfg = next
 	e.configProblem = problem

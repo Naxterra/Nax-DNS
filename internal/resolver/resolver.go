@@ -144,12 +144,20 @@ func closeState(s *state) {
 	}
 }
 
-// Reload replaces servers and rules. Health starts fresh.
-func (r *Resolver) Reload(cfg *config.Config) error {
+// Prepared holds servers and rules that Prepare built but that no query uses
+// yet. Publish switches to them, and Discard releases them instead.
+type Prepared struct{ st *state }
+
+// Discard releases a configuration that will not be published.
+func (p *Prepared) Discard() { closeState(p.st) }
+
+// Prepare builds the servers and rules for cfg without using them, so a change
+// can be saved before any query is answered by it.
+func (r *Resolver) Prepare(cfg *config.Config) (*Prepared, error) {
 	timeout := time.Duration(cfg.Settings.TimeoutMs) * time.Millisecond
 	boot, err := upstream.NewBootstrap(cfg.Settings.BootstrapDoH, timeout)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ns := &state{settings: cfg.Settings, rules: compileRules(cfg.Rules), byID: map[string]*server{}, boot: boot}
 	for _, u := range cfg.Upstreams {
@@ -159,16 +167,32 @@ func (r *Resolver) Reload(cfg *config.Config) error {
 		client, err := upstream.New(u, boot, timeout)
 		if err != nil {
 			closeState(ns)
-			return fmt.Errorf("server %q: %w", u.Name, err)
+			return nil, fmt.Errorf("server %q: %w", u.Name, err)
 		}
 		srv := &server{cfg: u, client: client, proto: upstream.Protocol(u.URL)}
 		ns.servers = append(ns.servers, srv)
 		ns.byID[u.ID] = srv
 	}
-	old := r.st.Swap(ns)
+	return &Prepared{st: ns}, nil
+}
+
+// Publish makes a prepared configuration the one that answers queries. Health
+// starts fresh, and the cache is emptied; answers from lookups that started
+// under the previous configuration are not stored afterwards.
+func (r *Resolver) Publish(p *Prepared) {
+	old := r.st.Swap(p.st)
 	r.cache.flush()
 	// Let in-flight queries finish on the old clients before closing them.
 	time.AfterFunc(10*time.Second, func() { closeState(old) })
+}
+
+// Reload prepares and publishes cfg in one step.
+func (r *Resolver) Reload(cfg *config.Config) error {
+	p, err := r.Prepare(cfg)
+	if err != nil {
+		return err
+	}
+	r.Publish(p)
 	return nil
 }
 
@@ -279,6 +303,9 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) (res Res
 	if len(req.Question) != 1 {
 		return Result{Msg: reply(req, dns.RcodeFormatError)}
 	}
+	// The generation is read before the configuration, so an answer from a
+	// configuration that was replaced meanwhile is never stored.
+	gen := r.cache.generation()
 	st := r.st.Load()
 	q := req.Question[0]
 	name := strings.ToLower(strings.TrimSuffix(q.Name, "."))
@@ -349,8 +376,9 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) (res Res
 	}
 
 	key := cacheKey(req)
+	useCache := st.settings.Cache && cacheable(req)
 	var stale *dns.Msg
-	if st.settings.Cache {
+	if useCache {
 		if msg, isStale, ok := r.cache.get(key); ok {
 			if !isStale {
 				e.Action, e.Rcode, e.Answer = "cached", dns.RcodeToString[msg.Rcode], summarize(msg)
@@ -364,8 +392,8 @@ func (r *Resolver) Resolve(ctx context.Context, req *dns.Msg, o Origin) (res Res
 	resp, srv, detail := r.exchange(ctx, st, candidates, req)
 	e.Detail = detail
 	if resp != nil {
-		if st.settings.Cache {
-			r.cache.put(key, resp, st.settings.CacheMinTTL, st.settings.CacheMaxTTL)
+		if useCache {
+			r.cache.put(key, resp, st.settings.CacheMinTTL, st.settings.CacheMaxTTL, gen)
 		}
 		e.Action, e.Server, e.Protocol = "resolved", srv.cfg.Name, srv.proto
 		e.Rcode, e.Answer = dns.RcodeToString[resp.Rcode], summarize(resp)
