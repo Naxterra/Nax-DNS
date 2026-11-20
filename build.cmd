@@ -5,6 +5,8 @@ cd /d "%~dp0"
 if not exist dist\.gotmp mkdir dist\.gotmp
 rem Link inside dist\ so an antivirus exclusion for this folder also covers the build.
 set GOTMPDIR=%~dp0dist\.gotmp
+rem Icon, manifest and version details (publisher, description) of both programs.
+go run .\tools\winres || exit /b 1
 go build -trimpath -ldflags "-s -w" -o dist\Nax-DNSService.exe .\cmd\naxdns-service || exit /b 1
 go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist\Nax-DNSManager.exe .\cmd\naxdns || exit /b 1
 copy /y third_party\windivert\WinDivert-2.2.2-A\x64\WinDivert.dll dist >nul

@@ -6,7 +6,7 @@ import (
 )
 
 // TestExportIcon writes the application icon used for the executable's
-// resources (winres/icon.png, compiled into the .syso by go-winres) when
+// resources (winres/icon.png, compiled into the .syso by tools/winres) when
 // NAXDNS_ICON_OUT is set.
 func TestExportIcon(t *testing.T) {
 	out := os.Getenv("NAXDNS_ICON_OUT")
