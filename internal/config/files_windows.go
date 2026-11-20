@@ -147,19 +147,41 @@ func SecureDir() error {
 		if err != nil || fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 			return fmt.Errorf("the data folder still contains %s, which cannot be trusted", entry.Name())
 		}
-		trusted := false
-		if err := settle(path, func() error {
-			ok, err := ownedByAdmins(path)
-			trusted = ok
+		if err := ownerCheck(path, entry.Name()); err != nil {
 			return err
-		}); err != nil {
-			return fmt.Errorf("the owner of %s in the data folder could not be read: %v", entry.Name(), err)
-		}
-		if _, err := os.Lstat(path); err == nil && !trusted {
-			return fmt.Errorf("the data folder still contains %s, which belongs to another account", entry.Name())
 		}
 	}
 	return nil
+}
+
+// ownerCheck makes sure an entry of the data folder that still exists belongs
+// to SYSTEM or Administrators. A temporary file can vanish while its owner is
+// read and be written again a moment later (the guard writes guard.json.tmp
+// every second), so a new file under the same name is checked again instead
+// of being judged by the check that found nothing.
+func ownerCheck(path, name string) error {
+	for round := 0; round < 3; round++ {
+		checked, trusted := false, false
+		if err := settle(path, func() error {
+			ok, err := ownedByAdmins(path)
+			if err == nil {
+				checked, trusted = true, ok
+			}
+			return err
+		}); err != nil {
+			return fmt.Errorf("the owner of %s in the data folder could not be read: %v", name, err)
+		}
+		if _, err := os.Lstat(path); err != nil {
+			return nil // gone, so the services will not open it
+		}
+		if checked {
+			if !trusted {
+				return fmt.Errorf("the data folder still contains %s, which belongs to another account", name)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the owner of %s in the data folder could not be read, because it keeps being replaced", name)
 }
 
 // settle runs op on an entry of the data folder. The services replace files

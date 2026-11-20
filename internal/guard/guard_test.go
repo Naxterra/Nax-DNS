@@ -70,7 +70,8 @@ func TestStoppedGuardIsNotReportedAsRunning(t *testing.T) {
 // An upgrade or rollback may stop the resolver in strict mode only while the
 // guard really blocks: a running guard whose WinDivert filter failed to open
 // must not count as ready, and neither may a report from before its start.
-// A filter worded differently by an older guard still counts.
+// A filter worded differently by an older guard still counts, but only if it
+// blocks everything the configuration needs.
 func TestGuardCountsAsBlockingOnlyWithAFilterOpen(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("NAXDNS_DATA", dir)
@@ -87,7 +88,9 @@ func TestGuardCountsAsBlockingOnlyWithAFilterOpen(t *testing.T) {
 		ok   bool
 	}{
 		{"filter failed to open", Status{Enabled: false, Error: "access denied"}, false},
-		{"filter of an older guard", Status{Enabled: true, Filter: "outbound and udp.DstPort == 53"}, true},
+		{"older guard blocking UDP only", Status{Enabled: true, Filter: "outbound and udp.DstPort == 53"}, false},
+		{"older guard skipping loopback", Status{Enabled: true, Filter: "outbound and !loopback and (udp.DstPort == 53 or tcp.DstPort == 53)"}, false},
+		{"older guard with UDP and TCP", Status{Enabled: true, Filter: "outbound and ((udp.DstPort == 53 and (udp.SrcPort < 48600 or udp.SrcPort > 48999)) or tcp.DstPort == 53)"}, true},
 		{"current filter", Status{Enabled: true, Filter: Filter(cfg.Settings)}, true},
 	}
 	for _, c := range cases {

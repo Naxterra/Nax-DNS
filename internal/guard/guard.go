@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/registry"
@@ -84,18 +85,37 @@ func ReadStatus() (Status, bool) {
 // state the guard is in, and otherwise only when the guard has reported after
 // since and holds a blocking filter. A configuration that cannot be read, or
 // that is missing while its working copy exists (the resolver is restoring
-// it), counts as strict, so an unknown state never passes as safe. The filter
-// text is not compared with Filter: the running guard may be an older version
-// whose filter is worded differently but blocks all the same.
+// it), counts as strict with everything to block, so an unknown state never
+// passes as safe. The filter text is not compared with Filter, because an
+// older guard words it differently, but it must cover everything the
+// configuration asks to block.
 func Blocking(since time.Time) bool {
 	path := filepath.Join(config.Dir(), "config.json")
+	need := config.Default().Settings // UDP, TCP and loopback
+	need.TCPMode, need.InterceptLoopback = config.TCPProxy, true
 	if !missingWithCopy(path) {
-		if cfg, err := config.Load(path); err == nil && cfg != nil && !Enabled(cfg) {
-			return true
+		if cfg, err := config.Load(path); err == nil && cfg != nil {
+			if !Enabled(cfg) {
+				return true
+			}
+			need = cfg.Settings
 		}
 	}
 	st, running := ReadStatus()
-	return running && st.Updated.After(since) && st.Enabled && st.Filter != ""
+	return running && st.Updated.After(since) && st.Enabled && covers(st.Filter, need)
+}
+
+// covers reports whether a guard filter, in the wording of any guard version,
+// drops everything that Filter(s) drops: UDP port 53, TCP port 53 unless TCP
+// is allowed, and loopback DNS if local resolvers are intercepted.
+func covers(filter string, s config.Settings) bool {
+	if !strings.Contains(filter, "udp.DstPort == 53") {
+		return false
+	}
+	if s.TCPMode != config.TCPAllow && !strings.Contains(filter, "tcp.DstPort == 53") {
+		return false
+	}
+	return !s.InterceptLoopback || !strings.Contains(filter, "!loopback")
 }
 
 func writeStatus(st Status) {
